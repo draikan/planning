@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14241D">
+<title>Créneaux — agenda de tournois</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap');
+
+:root{
+  --feutre:#14241D; --feutre2:#1B3127; --feutre3:#264534;
+  --craie:#EFE9DA; --craie-dim:#93A697;
+  --laiton:#C9A227; --laiton-clair:#E7CB6B;
+  --conflit:#E2483D; --trajet:#7FA6B8;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--feutre);color:var(--craie);
+  font-family:'Instrument Sans',system-ui,sans-serif;font-size:15px;line-height:1.5;
+  -webkit-text-size-adjust:100%}
+body{padding:max(18px,env(safe-area-inset-top)) 16px calc(60px + env(safe-area-inset-bottom))}
+:focus-visible{outline:2px solid var(--laiton-clair);outline-offset:2px}
+
+.eyebrow{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--craie-dim);margin-bottom:6px}
+h1{font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:800;
+  font-size:clamp(28px,7vw,44px);letter-spacing:-.03em;line-height:1;margin:0 0 18px}
+h1 em{font-style:normal;color:var(--laiton)}
+
+.stats{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:22px;padding-bottom:18px;
+  border-bottom:1px solid var(--feutre3)}
+.stat-v{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:600}
+.stat-l{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--craie-dim)}
+.stat.alerte .stat-v{color:var(--conflit)}
+
+button{font-family:'Instrument Sans',sans-serif;font-size:14px;font-weight:600;
+  border-radius:2px;cursor:pointer;padding:11px 16px;border:1px solid var(--feutre3);
+  background:var(--feutre2);color:var(--craie);transition:background .15s}
+button:hover{background:var(--feutre3)}
+button.primaire{background:var(--laiton);color:#14241D;border-color:var(--laiton)}
+button.primaire:hover{background:var(--laiton-clair)}
+button.discret{background:transparent;border-color:transparent;color:var(--craie-dim);padding:7px 9px}
+button.discret:hover{color:var(--craie);background:var(--feutre2)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.barre{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:24px}
+
+.jour{margin-bottom:30px}
+.jour-t{font-family:'Bricolage Grotesque',sans-serif;font-weight:600;font-size:13px;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--craie-dim);margin-bottom:10px}
+.piste{position:relative;height:34px;background:var(--feutre2);border:1px solid var(--feutre3);
+  border-radius:2px;margin-bottom:14px;overflow:hidden}
+.heure{position:absolute;top:0;bottom:0;width:1px;background:var(--feutre3)}
+.heure span{position:absolute;top:2px;left:3px;font-family:'JetBrains Mono',monospace;
+  font-size:9px;color:var(--craie-dim)}
+.seg{position:absolute;top:7px;height:20px;border-radius:1px;background:var(--laiton);
+  display:flex;align-items:center;padding:0 6px;font-family:'JetBrains Mono',monospace;
+  font-size:10px;color:#14241D;font-weight:600;overflow:hidden;white-space:nowrap}
+.seg.conflit{background:var(--conflit);color:#fff}
+.seg.envisage{background:transparent;border:1px dashed var(--craie-dim);color:var(--craie-dim)}
+.seg-trajet{position:absolute;top:13px;height:8px;
+  background:repeating-linear-gradient(45deg,var(--trajet) 0 3px,transparent 3px 6px)}
+
+.carte{display:flex;background:var(--feutre2);border:1px solid var(--feutre3);
+  border-radius:2px;margin-bottom:10px}
+.rail{width:4px;flex:none;background:var(--laiton)}
+.carte.conflit{border-color:var(--conflit)}
+.carte.conflit .rail{background:var(--conflit)}
+.corps{padding:13px 15px;flex:1;min-width:0}
+.l1{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.creneau{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:15px;color:var(--laiton-clair)}
+.carte.conflit .creneau{color:var(--conflit)}
+.nom{font-family:'Bricolage Grotesque',sans-serif;font-weight:600;font-size:17px}
+.meta{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--craie-dim);
+  margin-top:5px;display:flex;gap:6px;flex-wrap:wrap}
+.meta i{font-style:normal;color:var(--feutre3)}
+.alerte{margin-top:9px;padding:7px 10px;background:rgba(226,72,61,.12);
+  border-left:2px solid var(--conflit);font-size:12.5px;color:#F0A9A3}
+.actions{display:flex;gap:4px;margin-top:8px}
+
+.form{background:var(--feutre2);border:1px solid var(--feutre3);padding:18px;
+  margin-bottom:26px;border-radius:2px}
+.grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.champ{display:flex;flex-direction:column;gap:5px;min-width:0}
+.champ.large{grid-column:span 2}
+.champ label{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--craie-dim)}
+.champ input,.champ select{background:var(--feutre);border:1px solid var(--feutre3);
+  color:var(--craie);padding:10px;font-size:16px;font-family:'Instrument Sans',sans-serif;
+  border-radius:2px;width:100%;min-width:0}
+.champ input[type=number],.champ input[type=time],.champ input[type=date]{
+  font-family:'JetBrains Mono',monospace}
+.estim{margin-top:14px;padding:11px 13px;background:var(--feutre);
+  border-left:2px solid var(--laiton);font-size:13px}
+.estim b{font-family:'JetBrains Mono',monospace;color:var(--laiton-clair)}
+.estim .prevu{color:var(--conflit);display:block;margin-top:6px}
+
+.vide{border:1px dashed var(--feutre3);padding:34px 20px;text-align:center;
+  color:var(--craie-dim);border-radius:2px}
+.legende{display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--craie-dim);
+  margin-bottom:20px;font-family:'JetBrains Mono',monospace}
+.legende span{display:flex;align-items:center;gap:6px}
+.pastille{width:16px;height:8px;border-radius:1px;display:inline-block}
+
+.trajets{background:var(--feutre2);border:1px solid var(--feutre3);padding:16px;
+  margin-bottom:26px;border-radius:2px}
+.tr-l{display:flex;align-items:center;gap:10px;padding:8px 0;
+  border-bottom:1px solid var(--feutre3);flex-wrap:wrap}
+.tr-l:last-of-type{border-bottom:none}
+.tr-n{flex:1;font-size:13px;min-width:150px}
+.tr-v{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--trajet)}
+.tr-l input{width:80px;background:var(--feutre);border:1px solid var(--feutre3);
+  color:var(--craie);padding:6px 8px;font-family:'JetBrains Mono',monospace;
+  font-size:16px;border-radius:2px}
+.note{font-size:11.5px;color:var(--craie-dim);margin-top:10px}
+
+.pied{margin-top:40px;padding-top:18px;border-top:1px solid var(--feutre3);
+  font-size:11.5px;color:var(--craie-dim);display:flex;gap:14px;flex-wrap:wrap}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+"use strict";
+
+/* ---------- référentiel ---------- */
+const JEUX=["Magic: The Gathering","Pokémon","Yu-Gi-Oh!","One Piece","Lorcana","Altered","Flesh and Blood","Autre"];
+const STATUTS={inscrit:{label:"Inscrit",c:"var(--laiton)"},attente:{label:"Liste d'attente",c:"var(--trajet)"},envisage:{label:"Envisagé",c:"var(--craie-dim)"}};
+const CUTS={aucun:0,top4:2,top8:3,top16:4};
+const JOURS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
+const MOIS=["janv.","févr.","mars","avril","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
+
+function rondesSuisses(n){n=Number(n);if(!n||n<2)return 3;if(n<=8)return 3;if(n<=16)return 4;
+  if(n<=32)return 5;if(n<=64)return 6;if(n<=128)return 7;if(n<=226)return 8;if(n<=409)return 9;return 10}
+
+/* Créneau ronde = temps de jeu + retournement (appel, pairings, report).
+   Bo3 : 50 min de jeu + 10. Bo1 : 25 + 10. Top cut : plus long, souvent sans chrono. */
+function estimerDuree(v){
+  const rs=rondesSuisses(v.participants), rc=CUTS[v.cut]??0;
+  const dr=v.bo==="bo3"?60:35, dc=v.bo==="bo3"?75:45;
+  const t=30+(v.drafts?45:0)+rs*dr+(rc>0?30+rc*dc:0);
+  return Math.round(t/5)*5;
+}
+
+/* ---------- temps ---------- */
+const pad=n=>String(n).padStart(2,"0");
+const minMinuit=s=>{if(!s)return null;const[h,m]=s.split(":").map(Number);return h*60+m};
+function hhmm(m){const x=((m%1440)+1440)%1440;return pad(Math.floor(x/60))+":"+pad(x%60)}
+function fdur(m){if(m==null)return"—";const h=Math.floor(m/60),r=m%60;
+  return h===0?r+" min":(r===0?h+" h":h+" h "+pad(r))}
+function horod(e){if(!e.date||!e.heure)return null;
+  const[a,mo,j]=e.date.split("-").map(Number),[h,mi]=e.heure.split(":").map(Number);
+  return new Date(a,mo-1,j,h,mi).getTime()}
+function debutFin(e){const d=horod(e);if(d==null)return null;
+  const du=e.dureeManuelle!=null?e.dureeManuelle:estimerDuree(e);
+  return{debut:d,fin:d+du*60000,duree:du}}
+function libJour(iso){const[a,m,j]=iso.split("-").map(Number);
+  return JOURS[new Date(a,m-1,j).getDay()]+" "+j+" "+MOIS[m-1]}
+const norm=s=>(s||"").trim().toLowerCase().replace(/\s+/g," ");
+const cleTr=(a,b)=>{const p=[norm(a),norm(b)].sort();return p[0]+"→"+p[1]};
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+/* ---------- état ---------- */
+const CLE="jcc.agenda.v1";
+let S={events:[],trajets:{}};
+let draft=null, formOuvert=false, panneau=false, occupe=false;
+
+function load(){try{const r=localStorage.getItem(CLE);if(r)S=JSON.parse(r)}catch(e){}}
+function save(){try{localStorage.setItem(CLE,JSON.stringify(S));return true}catch(e){return false}}
+
+/* ---------- conflits ---------- */
+function analyser(){
+  const items=S.events.map(e=>{const d=debutFin(e);return d?Object.assign({ev:e},d):null})
+    .filter(Boolean).sort((a,b)=>a.debut-b.debut);
+  const conflits=new Map();
+  const push=(id,c)=>{if(!conflits.has(id))conflits.set(id,[]);conflits.get(id).push(c)};
+  for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++){
+    const A=items[i],B=items[j];
+    if(B.debut-A.fin>864e5)break;
+    if(B.debut<A.fin){
+      push(A.ev.id,{type:"chevauchement",avec:B.ev});
+      push(B.ev.id,{type:"chevauchement",avec:A.ev});continue;
+    }
+    const ecart=Math.round((B.debut-A.fin)/60000);
+    if(ecart>840)continue;
+    if(norm(A.ev.lieu)===norm(B.ev.lieu))continue;
+    const t=S.trajets[cleTr(A.ev.lieu,B.ev.lieu)];
+    if(!t)continue;
+    if(ecart<t.minutes){
+      const d={ecart:ecart,besoin:t.minutes};
+      push(A.ev.id,{type:"trajet",avec:B.ev,detail:d});
+      push(B.ev.id,{type:"trajet",avec:A.ev,detail:d});
+    }
+  }
+  return{items:items,conflits:conflits};
+}
+
+function pairesTrajet(items){
+  const out=[];
+  for(let i=0;i<items.length-1;i++){
+    const a=items[i],b=items[i+1];
+    if(!a.ev.lieu||!b.ev.lieu)continue;
+    if(norm(a.ev.lieu)===norm(b.ev.lieu))continue;
+    if(b.debut-a.fin>504e5)continue;
+    const k=cleTr(a.ev.lieu,b.ev.lieu);
+    if(!out.some(p=>p.cle===k))out.push({cle:k,de:a.ev.lieu,vers:b.ev.lieu});
+  }
+  return out;
+}
+
+/* ---------- géocodage + itinéraire (BAN + OSRM, sans clé) ---------- */
+async function geocoder(q){
+  const u="https://api-adresse.data.gouv.fr/search/?limit=1&q="+encodeURIComponent(q);
+  const r=await fetch(u);
+  if(!r.ok)throw new Error("géocodage indisponible");
+  const d=await r.json();
+  if(!d.features||!d.features.length)throw new Error("adresse introuvable : "+q);
+  return d.features[0].geometry.coordinates; // [lon,lat]
+}
+async function itineraire(a,b){
+  const u="https://router.project-osrm.org/route/v1/driving/"+a[0]+","+a[1]+";"+b[0]+","+b[1]+"?overview=false";
+  const r=await fetch(u);
+  if(!r.ok)throw new Error("calcul d'itinéraire indisponible");
+  const d=await r.json();
+  if(!d.routes||!d.routes.length)throw new Error("aucun itinéraire routier");
+  return{minutes:Math.round(d.routes[0].duration/60),km:Math.round(d.routes[0].distance/1000)};
+}
+async function calculerTrajets(){
+  const {items}=analyser();
+  const paires=pairesTrajet(items);
+  occupe=true;render();
+  const echecs=[];
+  for(const p of paires){
+    const ex=S.trajets[p.cle];
+    if(ex&&ex.source==="manuel")continue;
+    try{
+      const[A,B]=await Promise.all([geocoder(p.de),geocoder(p.vers)]);
+      const r=await itineraire(A,B);
+      S.trajets[p.cle]={minutes:r.minutes,km:r.km,source:"auto"};
+    }catch(e){echecs.push(p.de+" ↔ "+p.vers+" : "+e.message)}
+  }
+  occupe=false;save();render();
+  if(echecs.length)alert("Trajets non calculés :\n\n"+echecs.join("\n")+
+    "\n\nPrécise le lieu (rue, code postal, ville) ou saisis la durée à la main.");
+}
+
+/* ---------- rendu ---------- */
+const VIDE={nom:"",jeu:JEUX[0],format:"",date:"",heure:"09:00",lieu:"",frais:"",
+  participants:"32",bo:"bo3",cut:"top8",drafts:false,statut:"inscrit",dureeManuelle:null,id:null};
+
+function render(){
+  const {items,conflits}=analyser();
+  const paires=pairesTrajet(items);
+  const now=Date.now();
+  const aVenir=items.filter(x=>x.fin>=now);
+  const nbC=aVenir.filter(x=>conflits.has(x.ev.id)).length;
+  const frais=aVenir.reduce((s,x)=>s+(Number(x.ev.frais)||0),0);
+
+  const parJour={};
+  items.forEach(it=>{(parJour[it.ev.date]=parJour[it.ev.date]||[]).push(it)});
+  const jours=Object.keys(parJour).sort();
+
+  let h="";
+  h+='<div class="eyebrow">Créneaux sanctuarisés</div>';
+  h+='<h1>Mes tournois,<br><em>sans doublon.</em></h1>';
+  h+='<div class="stats">'
+    +'<div class="stat"><div class="stat-v">'+aVenir.length+'</div><div class="stat-l">à venir</div></div>'
+    +'<div class="stat'+(nbC?" alerte":"")+'"><div class="stat-v">'+nbC+'</div><div class="stat-l">en conflit</div></div>'
+    +'<div class="stat"><div class="stat-v">'+frais+' €</div><div class="stat-l">frais engagés</div></div>'
+    +'</div>';
+
+  h+='<div class="barre"><button class="primaire" data-a="nouveau">Ajouter un tournoi</button>'
+    +'<button data-a="panneau">Trajets'+(paires.length?" ("+paires.length+")":"")+'</button></div>';
+
+  if(formOuvert)h+=formHTML();
+  if(panneau)h+=trajetsHTML(paires);
+
+  h+='<div class="legende">'
+    +'<span><i class="pastille" style="background:var(--laiton)"></i> créneau bloqué</span>'
+    +'<span><i class="pastille" style="background:var(--conflit)"></i> conflit</span>'
+    +'<span><i class="pastille" style="background:repeating-linear-gradient(45deg,var(--trajet) 0 3px,transparent 3px 6px)"></i> trajet</span>'
+    +'<span><i class="pastille" style="border:1px dashed var(--craie-dim)"></i> envisagé</span></div>';
+
+  if(!jours.length)h+='<div class="vide">Rien de planifié. Ajoute ton premier tournoi : '
+    +"l'outil en déduira le créneau à bloquer et te préviendra dès qu'un second le recoupe.</div>";
+
+  jours.forEach(j=>{h+=jourHTML(j,parJour[j],conflits)});
+
+  h+='<div class="pied"><span>Données enregistrées sur cet appareil uniquement.</span>'
+    +'<button class="discret" data-a="export">Exporter</button>'
+    +'<button class="discret" data-a="import">Importer</button></div>';
+
+  document.getElementById("app").innerHTML=h;
+  brancher();
+}
+
+function jourHTML(date,items,conflits){
+  const mins=items.map(x=>{const d=new Date(x.debut);return d.getHours()*60+d.getMinutes()});
+  const fins=items.map((x,i)=>mins[i]+x.duree);
+  const bmin=Math.max(0,Math.min(420,...mins)-30);
+  const bmax=Math.min(1440,Math.max(1380,...fins)+30);
+  const span=bmax-bmin;
+  const pct=m=>((m-bmin)/span)*100;
+
+  let h='<div class="jour"><div class="jour-t">'+libJour(date)+'</div><div class="piste">';
+  for(let hh=Math.ceil(bmin/60);hh*60<=bmax;hh+=2)
+    h+='<div class="heure" style="left:'+pct(hh*60)+'%"><span>'+pad(hh)+'h</span></div>';
+  items.forEach((x,i)=>{
+    const c=conflits.has(x.ev.id)?"conflit":(x.ev.statut==="envisage"?"envisage":"");
+    h+='<div class="seg '+c+'" style="left:'+pct(mins[i])+'%;width:'+Math.max(1.5,(x.duree/span)*100)
+      +'%" title="'+esc(x.ev.nom)+' — '+hhmm(mins[i])+' à '+hhmm(fins[i])+'">'+esc(x.ev.nom)+'</div>';
+  });
+  items.slice(0,-1).forEach((x,i)=>{
+    const n=items[i+1];
+    if(norm(x.ev.lieu)===norm(n.ev.lieu))return;
+    const t=S.trajets[cleTr(x.ev.lieu,n.ev.lieu)];
+    if(!t)return;
+    h+='<div class="seg-trajet" style="left:'+pct(fins[i])+'%;width:'+((t.minutes/span)*100)
+      +'%" title="Trajet '+fdur(t.minutes)+'"></div>';
+  });
+  h+='</div>';
+  items.forEach((x,i)=>{h+=carteHTML(x,mins[i],fins[i],conflits.get(x.ev.id))});
+  return h+'</div>';
+}
+
+function carteHTML(x,d,f,cs){
+  const e=x.ev, k=!!cs;
+  let h='<div class="carte'+(k?" conflit":"")+'"><div class="rail"'
+    +(k?"":' style="background:'+(STATUTS[e.statut]||{}).c+'"')+'></div><div class="corps">';
+  h+='<div class="l1"><span class="creneau">'+hhmm(d)+' – '+hhmm(f)+'</span>'
+    +'<span class="nom">'+esc(e.nom||"Sans nom")+'</span></div>';
+  const m=[esc(e.jeu)];
+  if(e.format)m.push(esc(e.format));
+  m.push(e.bo==="bo3"?"Bo3":"Bo1");
+  if(e.participants)m.push(esc(e.participants)+" j.");
+  if(e.cut!=="aucun")m.push(esc(e.cut));
+  m.push(fdur(x.duree)+(e.dureeManuelle!=null?" (forcé)":""));
+  if(e.lieu)m.push(esc(e.lieu));
+  if(e.frais)m.push(esc(e.frais)+" €");
+  m.push((STATUTS[e.statut]||{}).label||"");
+  h+='<div class="meta">'+m.map(s=>"<span>"+s+"</span>").join("<i>/</i>")+'</div>';
+  (cs||[]).forEach(c=>{
+    h+='<div class="alerte">'+(c.type==="chevauchement"
+      ?'Chevauche <b>'+esc(c.avec.nom||"un autre tournoi")+'</b>. Les deux créneaux se recouvrent.'
+      :'Trajet impossible avec <b>'+esc(c.avec.nom||"un autre tournoi")+'</b> : '
+        +fdur(c.detail.ecart)+" d'écart pour "+fdur(c.detail.besoin)+' de route.')+'</div>';
+  });
+  h+='<div class="actions"><button class="discret" data-a="editer" data-id="'+e.id+'">Modifier</button>'
+    +'<button class="discret" data-a="suppr" data-id="'+e.id+'">Retirer</button></div>';
+  return h+'</div></div>';
+}
+
+function opt(v,sel,lab){return '<option value="'+esc(v)+'"'+(v===sel?" selected":"")+'>'+esc(lab||v)+'</option>'}
+
+function formHTML(){
+  const v=draft;
+  const auto=estimerDuree(v);
+  return '<div class="form"><div class="eyebrow" style="margin-bottom:14px">'
+    +(v.id?"Modifier le tournoi":"Nouveau tournoi")+'</div><div class="grille">'
+  +'<div class="champ large"><label for="f-nom">Nom</label><input id="f-nom" data-f="nom" value="'+esc(v.nom)+'" placeholder="Regional Championship"></div>'
+  +'<div class="champ"><label for="f-jeu">Jeu</label><select id="f-jeu" data-f="jeu">'+JEUX.map(j=>opt(j,v.jeu)).join("")+'</select></div>'
+  +'<div class="champ"><label for="f-fmt">Format</label><input id="f-fmt" data-f="format" value="'+esc(v.format)+'" placeholder="Modern, Standard…"></div>'
+  +'<div class="champ"><label for="f-date">Date</label><input id="f-date" type="date" data-f="date" value="'+esc(v.date)+'"></div>'
+  +'<div class="champ"><label for="f-h">Début</label><input id="f-h" type="time" data-f="heure" value="'+esc(v.heure)+'"></div>'
+  +'<div class="champ large"><label for="f-lieu">Lieu</label><input id="f-lieu" data-f="lieu" value="'+esc(v.lieu)+'" placeholder="12 rue X, 75011 Paris"></div>'
+  +'<div class="champ"><label for="f-nb">Participants attendus</label><input id="f-nb" type="number" min="2" data-f="participants" value="'+esc(v.participants)+'"></div>'
+  +'<div class="champ"><label for="f-bo">Rondes</label><select id="f-bo" data-f="bo">'+opt("bo1",v.bo,"Bo1")+opt("bo3",v.bo,"Bo3")+'</select></div>'
+  +'<div class="champ"><label for="f-cut">Top cut</label><select id="f-cut" data-f="cut">'
+    +opt("aucun",v.cut,"Aucun")+opt("top4",v.cut,"Top 4")+opt("top8",v.cut,"Top 8")+opt("top16",v.cut,"Top 16")+'</select></div>'
+  +'<div class="champ"><label for="f-fr">Frais (€)</label><input id="f-fr" type="number" min="0" data-f="frais" value="'+esc(v.frais)+'"></div>'
+  +'<div class="champ"><label for="f-st">Statut</label><select id="f-st" data-f="statut">'
+    +Object.keys(STATUTS).map(k=>opt(k,v.statut,STATUTS[k].label)).join("")+'</select></div>'
+  +'<div class="champ"><label for="f-du">Durée forcée (min)</label><input id="f-du" type="number" min="0" step="5" data-f="dureeManuelle" value="'+(v.dureeManuelle??"")+'" placeholder="'+auto+'"></div>'
+  +'</div>'
+  +'<label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:13px">'
+    +'<input type="checkbox" data-f="drafts"'+(v.drafts?" checked":"")+'> Draft ou construction sur place (+45 min)</label>'
+  +'<div class="estim" id="estim">'+estimHTML()+'</div>'
+  +'<div class="barre" style="margin-top:16px;margin-bottom:0">'
+    +'<button class="primaire" data-a="valider"'+(!draft.date||!draft.heure?" disabled":"")+'>'
+    +(v.id?"Enregistrer":"Ajouter au planning")+'</button>'
+    +'<button data-a="annuler">Annuler</button></div></div>';
+}
+
+function estimHTML(){
+  const v=draft, auto=estimerDuree(v);
+  const d=v.dureeManuelle!=null?v.dureeManuelle:auto;
+  const rs=rondesSuisses(v.participants);
+  let h='Créneau à sanctuariser : <b>'+esc(v.heure||"—")+'</b> → <b>'
+    +(v.heure?hhmm(minMinuit(v.heure)+d):"—")+'</b>, soit <b>'+fdur(d)+'</b>.'
+    +'<div style="color:var(--craie-dim);font-size:12px;margin-top:4px">'+rs+' rondes suisses'
+    +(v.cut!=="aucun"?" + "+v.cut:"")+' en '+(v.bo==="bo3"?"Bo3":"Bo1")
+    +', enregistrement et pauses inclus.'+(v.dureeManuelle!=null?" Durée forcée manuellement.":"")+'</div>';
+  apercuConflits(d).forEach(a=>{h+='<span class="prevu">Conflit : ce créneau '+a+'.</span>'});
+  return h;
+}
+
+function apercuConflits(duree){
+  if(!draft.date||!draft.heure)return[];
+  const deb=horod(draft), fin=deb+duree*60000, out=[];
+  const {items}=analyser();
+  items.forEach(a=>{
+    if(a.ev.id===draft.id)return;
+    if(deb<a.fin&&a.debut<fin){out.push('chevauche « '+esc(a.ev.nom||"sans nom")+' »');return}
+    const ec=deb>a.fin?(deb-a.fin)/60000:(a.debut-fin)/60000;
+    if(ec>840)return;
+    if(norm(draft.lieu)===norm(a.ev.lieu))return;
+    const t=S.trajets[cleTr(draft.lieu,a.ev.lieu)];
+    if(t&&ec<t.minutes)out.push('laisse '+fdur(Math.round(ec))+' avant « '
+      +esc(a.ev.nom||"sans nom")+' » alors que le trajet dure '+fdur(t.minutes));
+  });
+  return out;
+}
+
+function trajetsHTML(paires){
+  let h='<div class="trajets"><div class="eyebrow" style="margin-bottom:12px">Temps de déplacement</div>';
+  if(!paires.length){
+    h+='<div style="color:var(--craie-dim);font-size:13px">Aucun enchaînement entre deux lieux '
+      +"différents pour l'instant. Les trajets apparaissent dès que deux tournois se suivent à moins de 14 h d'écart.</div>";
+  }else{
+    paires.forEach(p=>{
+      const t=S.trajets[p.cle];
+      h+='<div class="tr-l"><div class="tr-n">'+esc(p.de)+' <span style="color:var(--feutre3)">↔</span> '+esc(p.vers)+'</div>';
+      h+=t?'<span class="tr-v">'+fdur(t.minutes)+(t.km?" · "+t.km+" km":"")+'</span>'
+          +'<input type="number" min="0" step="5" value="'+t.minutes+'" data-tr="'+esc(p.cle)+'" aria-label="Minutes de trajet">'
+        :'<span style="color:var(--craie-dim);font-size:12px">non calculé</span>';
+      h+='</div>';
+    });
+    h+='<button style="margin-top:14px" data-a="calc"'+(occupe?" disabled":"")+'>'
+      +(occupe?"Calcul en cours…":"Calculer les trajets manquants")+'</button>';
+    h+='<div class="note">Itinéraire routier via la Base Adresse Nationale et OSRM. '
+      +'Plus le lieu est précis (rue, code postal, ville), meilleur est le résultat. '
+      +'Une valeur saisie à la main n\'est jamais écrasée par un recalcul.</div>';
+  }
+  return h+'</div>';
+}
+
+/* ---------- interactions ---------- */
+function brancher(){
+  document.querySelectorAll("[data-a]").forEach(b=>{
+    b.addEventListener("click",()=>action(b.dataset.a,b.dataset.id));
+  });
+  document.querySelectorAll("[data-f]").forEach(el=>{
+    el.addEventListener("input",()=>{
+      const k=el.dataset.f;
+      let v=el.type==="checkbox"?el.checked:el.value;
+      if(k==="dureeManuelle")v=(v===""?null:Number(v));
+      draft[k]=v;
+      const e=document.getElementById("estim");
+      if(e)e.innerHTML=estimHTML();
+      const b=document.querySelector('[data-a="valider"]');
+      if(b)b.disabled=!draft.date||!draft.heure;
+    });
+  });
+  document.querySelectorAll("[data-tr]").forEach(el=>{
+    el.addEventListener("change",()=>{
+      const k=el.dataset.tr;
+      S.trajets[k]=Object.assign({},S.trajets[k],{minutes:Number(el.value),source:"manuel"});
+      save();render();
+    });
+  });
+}
+
+function action(a,id){
+  if(a==="nouveau"){draft=Object.assign({},VIDE);formOuvert=true;render();window.scrollTo(0,0)}
+  else if(a==="editer"){draft=Object.assign({},S.events.find(e=>e.id===id));formOuvert=true;render();window.scrollTo(0,0)}
+  else if(a==="annuler"){formOuvert=false;draft=null;render()}
+  else if(a==="valider"){
+    if(draft.id)S.events=S.events.map(e=>e.id===draft.id?draft:e);
+    else S.events.push(Object.assign({},draft,{id:"t"+Date.now()}));
+    formOuvert=false;draft=null;
+    if(!save())alert("Enregistrement impossible : le stockage du navigateur est plein ou bloqué.");
+    render();
+  }
+  else if(a==="suppr"){
+    if(confirm("Retirer ce tournoi du planning ?")){
+      S.events=S.events.filter(e=>e.id!==id);save();render();
+    }
+  }
+  else if(a==="panneau"){panneau=!panneau;render()}
+  else if(a==="calc"){calculerTrajets()}
+  else if(a==="export"){
+    const b=new Blob([JSON.stringify(S,null,2)],{type:"application/json"});
+    const u=URL.createObjectURL(b), l=document.createElement("a");
+    l.href=u;l.download="tournois.json";l.click();URL.revokeObjectURL(u);
+  }
+  else if(a==="import"){
+    const i=document.createElement("input");i.type="file";i.accept=".json,application/json";
+    i.onchange=()=>{const f=i.files[0];if(!f)return;const r=new FileReader();
+      r.onload=()=>{try{const d=JSON.parse(r.result);
+        if(!d.events)throw new Error("format inattendu");
+        S={events:d.events,trajets:d.trajets||{}};save();render();
+      }catch(e){alert("Import impossible : "+e.message)}};
+      r.readAsText(f)};
+    i.click();
+  }
+}
+
+/* ---------- démarrage ---------- */
+load();render();
+if("serviceWorker" in navigator)
+  window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+</script>
+</body>
+</html>

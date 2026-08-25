@@ -165,14 +165,14 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 
 /* ---------- état ---------- */
 const CLE="jcc.agenda.v1";
-const REGLAGES_DEFAUT={base:"",margeDepart:15,alerteTrajet:30};
+const REGLAGES_DEFAUT={base:"",margeDepart:15,alerteTrajet:30,mode:"transports"};
 let S={events:[],trajets:{},reglages:Object.assign({},REGLAGES_DEFAUT),
-       reglagesMaj:0,supprimes:{},notifs:[]};
+       reglagesMaj:0,supprimes:{},tc:{},notifs:[]};
 
 /* Identifiants de synchronisation : stockés à part, JAMAIS inclus dans la charge
    envoyée au gist ni dans l'export. Un jeton ne doit pas voyager. */
 const CLE_SYNC="jcc.sync.v1";
-let sync={token:"",gistId:"",dernier:0};
+let sync={token:"",gistId:"",dernier:0,navitia:""};
 let syncEtat=null;
 function loadSync(){try{const r=localStorage.getItem(CLE_SYNC);
   if(r)sync=Object.assign(sync,JSON.parse(r))}catch(e){}}
@@ -184,7 +184,7 @@ function load(){try{const r=localStorage.getItem(CLE);if(r){
   S={events:d.events||[],trajets:d.trajets||{},
      reglages:Object.assign({},REGLAGES_DEFAUT,d.reglages||{}),
      reglagesMaj:d.reglagesMaj||0,supprimes:d.supprimes||{},
-     notifs:d.notifs||[]};
+     tc:d.tc||{},notifs:d.notifs||[]};
 }}catch(e){}}
 function save(){try{localStorage.setItem(CLE,JSON.stringify(S));return true}catch(e){return false}}
 
@@ -244,10 +244,17 @@ function pairesRequises(items){
 function trajetEntrant(items,i){
   const de=origineDe(items,i);
   if(!de)return null;
-  const vers=items[i].ev.lieu;
+  const ev=items[i].ev, vers=ev.lieu;
   if(norm(de)===norm(vers))return null;
+  if(S.reglages.mode==="transports"){
+    const tc=S.tc[ev.id];
+    /* on n'utilise le résultat que s'il correspond encore au lieu et à l'horaire */
+    if(tc&&tc.empreinte===empreinteTC(de,vers,ev))
+      return{minutes:tc.minutes,de:de,vers:vers,mode:"tc",
+             correspondances:tc.correspondances,lignes:tc.lignes||[]};
+  }
   const t=S.trajets[cleTr(de,vers)];
-  return t?{minutes:t.minutes,de:de,vers:vers}:null;
+  return t?{minutes:t.minutes,de:de,vers:vers,mode:"voiture"}:null;
 }
 
 /* ---------- géocodage + itinéraire (BAN + OSRM, sans clé) ---------- */
@@ -287,6 +294,77 @@ async function calculerTrajets(){
 }
 
 
+
+/* ---------- itinéraires en transports en commun (Navitia) ---------- */
+/* Contrairement à la voiture, un trajet en transports dépend du jour et de
+   l'heure. On interroge donc par tournoi, en posant la question à l'envers :
+   « à quelle heure partir pour arriver avant le début ? ». Le résultat est
+   mémorisé avec une empreinte du contexte, et recalculé dès que le lieu,
+   la date ou l'heure changent. */
+
+function empreinteTC(de,vers,ev){
+  return norm(de)+"|"+norm(vers)+"|"+ev.date+"|"+ev.heure;
+}
+
+function navitiaDate(ev,marge){
+  const t=horod(ev)-marge*60000, d=new Date(t);
+  return d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+"T"
+    +pad(d.getHours())+pad(d.getMinutes())+"00";
+}
+
+async function navitiaTrajet(coordDe,coordVers,arriveeAvant){
+  const u="https://api.navitia.io/v1/journeys"
+    +"?from="+coordDe[0]+";"+coordDe[1]
+    +"&to="+coordVers[0]+";"+coordVers[1]
+    +"&datetime="+arriveeAvant
+    +"&datetime_represents=arrival"
+    +"&max_nb_journeys=1"
+    +"&key="+encodeURIComponent(sync.navitia);
+  const r=await fetch(u);
+  if(r.status===401)throw new Error("clé Navitia refusée");
+  if(r.status===404)throw new Error("aucune couverture transports pour ces lieux");
+  if(r.status===429)throw new Error("quota Navitia atteint pour aujourd'hui");
+  if(!r.ok)throw new Error("Navitia a répondu "+r.status);
+  const d=await r.json();
+  if(!d.journeys||!d.journeys.length)
+    throw new Error("aucun itinéraire en transports trouvé");
+  const j=d.journeys[0];
+  const lignes=(j.sections||[])
+    .filter(x=>x.type==="public_transport"&&x.display_informations)
+    .map(x=>x.display_informations.code||x.display_informations.commercial_mode||"")
+    .filter(Boolean);
+  return{minutes:Math.round(j.duration/60),
+         correspondances:j.nb_transfers,
+         depart:j.departure_date_time,
+         lignes:lignes};
+}
+
+async function calculerTC(){
+  if(!sync.navitia){
+    alert("Renseigne d'abord une clé Navitia dans le panneau Rappels.");return;
+  }
+  const {items}=analyser();
+  occupe=true;render();
+  const echecs=[];
+  const marge=Number(S.reglages.margeDepart)||0;
+  for(let i=0;i<items.length;i++){
+    const x=items[i], de=origineDe(items,i), vers=x.ev.lieu;
+    if(!de||norm(de)===norm(vers))continue;
+    const emp=empreinteTC(de,vers,x.ev);
+    const ex=S.tc[x.ev.id];
+    if(ex&&ex.empreinte===emp&&ex.source==="manuel")continue;
+    if(ex&&ex.empreinte===emp&&ex.source==="auto")continue;
+    try{
+      const[A,B]=await Promise.all([geocoder(de),geocoder(vers)]);
+      const r=await navitiaTrajet(A,B,navitiaDate(x.ev,marge));
+      S.tc[x.ev.id]=Object.assign({empreinte:emp,de:de,vers:vers,source:"auto"},r);
+    }catch(e){echecs.push((x.ev.nom||"sans nom")+" : "+e.message)}
+  }
+  occupe=false;save();render();syncDifferee();
+  if(echecs.length)alert("Trajets en transports non calculés :\n\n"+echecs.join("\n")
+    +"\n\nPrécise les adresses, ou saisis la durée à la main.");
+}
+
 /* ---------- alarmes ---------- */
 /* Deux rappels par tournoi :
    - "départ" : marge avant l'heure à laquelle il faut prendre la route ;
@@ -301,13 +379,13 @@ function alarmes(){
       const depart=x.debut-(t.minutes+marge)*60000;
       out.push({cle:x.ev.id+":trajet",quand:depart,type:"trajet",ev:x.ev,
         titre:"Départ pour "+(x.ev.nom||"ton tournoi"),
-        texte:fdur(t.minutes)+" de route depuis "+t.de+". Début à "+
+        texte:fdur(t.minutes)+" de trajet depuis "+t.de+". Début à "+
           hhmm(minMinuit(x.ev.heure))+"."});
       const prevenir=depart-(Number(S.reglages.alerteTrajet)||0)*60000;
       out.push({cle:x.ev.id+":preavis",quand:prevenir,type:"preavis",ev:x.ev,
         titre:"Prépare-toi : "+(x.ev.nom||"tournoi"),
         texte:"Départ dans "+fdur(Number(S.reglages.alerteTrajet)||0)+
-          " pour "+fdur(t.minutes)+" de route."});
+          " pour "+fdur(t.minutes)+" de trajet."});
     }else{
       out.push({cle:x.ev.id+":simple",quand:x.debut-60*60000,type:"simple",ev:x.ev,
         titre:(x.ev.nom||"Tournoi")+" dans 1 h",
@@ -363,7 +441,7 @@ function genererICS(){
     const avant=t?(t.minutes+marge):60;
     L.push("BEGIN:VALARM","ACTION:DISPLAY","TRIGGER:-PT"+avant+"M");
     L.push(icsPlier("DESCRIPTION:"+icsEchap(t
-      ?"Il faut partir maintenant : "+fdur(t.minutes)+" de route depuis "+t.de
+      ?"Il faut partir maintenant : "+fdur(t.minutes)+" de trajet depuis "+t.de
       :"Tournoi dans 1 h")));
     L.push("END:VALARM");
     L.push("END:VEVENT");
@@ -379,7 +457,7 @@ function genererICS(){
       L.push(icsPlier("SUMMARY:"+icsEchap("Trajet vers "+(e.nom||"tournoi"))));
       L.push(icsPlier("LOCATION:"+icsEchap(t.de+" -> "+t.vers)));
       L.push(icsPlier("DESCRIPTION:"+icsEchap(
-        fdur(t.minutes)+" de route, "+fdur(marge)+" de marge.")));
+        fdur(t.minutes)+" de trajet, "+fdur(marge)+" de marge.")));
       L.push("BEGIN:VALARM","ACTION:DISPLAY","TRIGGER:-PT"+preavis+"M");
       L.push(icsPlier("DESCRIPTION:"+icsEchap("Départ dans "+fdur(preavis)+
         " vers "+t.vers)));
@@ -473,7 +551,7 @@ async function gistLire(){
 }
 
 function chargeUtile(){
-  return{v:1,maj:Date.now(),events:S.events,trajets:S.trajets,
+  return{v:1,maj:Date.now(),events:S.events,trajets:S.trajets,tc:S.tc,
     supprimes:S.supprimes,reglages:S.reglages,reglagesMaj:S.reglagesMaj||0};
 }
 
@@ -527,6 +605,7 @@ function fusionner(dist){
     if(!d||l.source==="manuel"||d.source!=="manuel")tr[k]=l;
   });
   S.trajets=tr;
+  S.tc=Object.assign({},dist.tc||{},S.tc||{});
 
   if((dist.reglagesMaj||0)>(S.reglagesMaj||0)){
     S.reglages=Object.assign({},REGLAGES_DEFAUT,dist.reglages||{});
@@ -588,7 +667,7 @@ function render(){
     +'<button data-a="reglages">Rappels</button></div>';
 
   if(formOuvert)h+=formHTML();
-  if(panneau)h+=trajetsHTML(paires);
+  if(panneau)h+=(S.reglages.mode==="transports"?trajetsTCHTML():trajetsHTML(paires));
   if(reglagesOuvert)h+=reglagesHTML();
 
   h+='<div class="legende">'
@@ -662,7 +741,7 @@ function carteHTML(x,d,f,cs){
     h+='<div class="alerte">'+(c.type==="chevauchement"
       ?'Chevauche <b>'+esc(c.avec.nom||"un autre tournoi")+'</b>. Les deux créneaux se recouvrent.'
       :'Trajet impossible avec <b>'+esc(c.avec.nom||"un autre tournoi")+'</b> : '
-        +fdur(c.detail.ecart)+" d'écart pour "+fdur(c.detail.besoin)+' de route.')+'</div>';
+        +fdur(c.detail.ecart)+" d'écart pour "+fdur(c.detail.besoin)+' de trajet.')+'</div>';
   });
   h+='<div class="actions"><button class="discret" data-a="editer" data-id="'+e.id+'">Modifier</button>'
     +'<button class="discret" data-a="suppr" data-id="'+e.id+'">Retirer</button></div>';
@@ -751,6 +830,13 @@ function reglagesHTML(){
     +'<input id="r-marge" type="number" min="0" step="5" data-r="margeDepart" value="'+esc(r.margeDepart)+'"></div>'
   +'<div class="champ"><label for="r-pre">Préavis avant départ (min)</label>'
     +'<input id="r-pre" type="number" min="0" step="5" data-r="alerteTrajet" value="'+esc(r.alerteTrajet)+'"></div>'
+  +'<div class="champ large"><label for="r-mode">Mode de déplacement</label>'
+    +'<select id="r-mode" data-r="mode">'
+    +opt("transports",r.mode,"Transports en commun")
+    +opt("voiture",r.mode,"Voiture / taxi")+'</select></div>'
+  +'<div class="champ large"><label for="s-nav">Clé Navitia (transports en commun)</label>'
+    +'<input id="s-nav" type="password" data-s="navitia" value="'+esc(sync.navitia||"")
+    +'" autocomplete="off" placeholder="requise en mode transports"></div>'
   +'</div>'
   +'<div class="note">Sans adresse de départ, aucun trajet ne peut être calculé vers ton '
     +'premier tournoi de la journée, et le rappel se limite à une heure avant le début.</div>'
@@ -786,6 +872,52 @@ function reglagesHTML(){
     +'onglet « Tokens (classic) », en ne cochant que <b>gist</b>. Renseigne le même '
     +'identifiant de gist sur ton second appareil pour les relier.</div>'
   +'</div>';
+}
+
+function trajetsTCHTML(){
+  const {items}=analyser();
+  let h='<div class="trajets"><div class="eyebrow" style="margin-bottom:12px">'
+    +'Déplacements en transports</div>';
+  const lignes=[];
+  items.forEach((x,i)=>{
+    const de=origineDe(items,i), vers=x.ev.lieu;
+    if(!de||norm(de)===norm(vers))return;
+    const tc=S.tc[x.ev.id];
+    const valide=tc&&tc.empreinte===empreinteTC(de,vers,x.ev);
+    let droite;
+    if(valide){
+      const dep=tc.depart?tc.depart.slice(9,11)+":"+tc.depart.slice(11,13):null;
+      droite='<span class="tr-v">'+fdur(tc.minutes)
+        +(tc.correspondances!=null?" · "+tc.correspondances+" corresp.":"")
+        +(dep?" · départ "+dep:"")+'</span>'
+        +'<input type="number" min="0" step="5" value="'+tc.minutes
+        +'" data-tc="'+esc(x.ev.id)+'" aria-label="Minutes de trajet">';
+    }else if(tc){
+      droite='<span style="color:var(--conflit);font-size:12px">à recalculer '
+        +'(lieu ou horaire modifié)</span>';
+    }else{
+      droite='<span style="color:var(--craie-dim);font-size:12px">non calculé</span>';
+    }
+    lignes.push('<div class="tr-l"><div class="tr-n">'+esc(x.ev.nom||"Sans nom")
+      +'<br><span style="color:var(--craie-dim);font-size:11.5px">'+esc(de)
+      +' <span style="color:var(--feutre3)">→</span> '+esc(vers)
+      +(valide&&tc.lignes&&tc.lignes.length?' · '+esc(tc.lignes.join(" › ")):'')
+      +'</span></div>'+droite+'</div>');
+  });
+  if(!lignes.length){
+    h+='<div style="color:var(--craie-dim);font-size:13px">Aucun déplacement à '
+      +'calculer. Renseigne une adresse de départ dans le panneau Rappels, et '
+      +'des lieux précis sur tes tournois.</div>';
+  }else{
+    h+=lignes.join("");
+    h+='<button style="margin-top:14px" data-a="calctc"'+(occupe?" disabled":"")+'>'
+      +(occupe?"Calcul en cours…":"Calculer les trajets en transports")+'</button>';
+    h+='<div class="note">Chaque itinéraire est calculé pour <b>arriver avant</b> '
+      +'le début du tournoi, à la date et à l\'heure réelles — un dimanche matin '
+      +'ne donne pas le même résultat qu\'un mardi. Il est automatiquement marqué '
+      +'à recalculer si tu modifies le lieu, la date ou l\'heure.</div>';
+  }
+  return h+'</div>';
 }
 
 function trajetsHTML(paires){
@@ -840,6 +972,13 @@ function brancher(){
       sync[el.dataset.s]=el.value.trim();saveSync();render();
     });
   });
+  document.querySelectorAll("[data-tc]").forEach(el=>{
+    el.addEventListener("change",()=>{
+      const id=el.dataset.tc;
+      S.tc[id]=Object.assign({},S.tc[id],{minutes:Number(el.value),source:"manuel"});
+      save();render();syncDifferee();
+    });
+  });
   document.querySelectorAll("[data-tr]").forEach(el=>{
     el.addEventListener("change",()=>{
       const k=el.dataset.tr;
@@ -874,6 +1013,7 @@ function action(a,id){
   else if(a==="notifs"){demanderNotifs()}
   else if(a==="sync"){synchroniser(false)}
   else if(a==="calc"){calculerTrajets()}
+  else if(a==="calctc"){calculerTC()}
   else if(a==="export"){
     const b=new Blob([JSON.stringify(S,null,2)],{type:"application/json"});
     const u=URL.createObjectURL(b), l=document.createElement("a");

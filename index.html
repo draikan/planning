@@ -165,7 +165,26 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 
 /* ---------- état ---------- */
 const CLE="jcc.agenda.v1";
-const REGLAGES_DEFAUT={base:"",margeDepart:15,alerteTrajet:30,mode:"transports"};
+const REGLAGES_DEFAUT={base:"",margeDepart:15,alerteTrajet:30,mode:"transports",
+  fournisseur:"prim",baseTC:""};
+
+/* Fournisseurs d'itinéraires en transports. Tous exposent le moteur Navitia,
+   donc la même requête et la même réponse : seuls l'adresse et le mode
+   d'authentification changent. navitia.io, portail public historique, a fermé —
+   d'où ce choix configurable plutôt qu'une adresse codée en dur. */
+const FOURNISSEURS={
+  prim:{nom:"Île-de-France Mobilités (PRIM)",
+        base:"https://prim.iledefrance-mobilites.fr/marketplace/v2/navitia",
+        auth:"apikey",
+        aide:"Compte gratuit sur prim.iledefrance-mobilites.fr, rubrique « Mes jetons d\'authentification ». Couvre métro, RER, Transilien, bus et tram franciliens."},
+  sncf:{nom:"API SNCF (ferroviaire national)",
+        base:"https://api.sncf.com/v1/coverage/sncf",
+        auth:"basic",
+        aide:"Compte gratuit sur numerique.sncf.com/startup/api. Couvre les trains sur toute la France, mais pas les réseaux urbains de desserte."},
+  perso:{nom:"Autre instance Navitia",
+        base:"",auth:"apikey",
+        aide:"Renseigne l\'adresse de base d\'une instance Navitia à laquelle tu as accès."}
+};
 let S={events:[],trajets:{},reglages:Object.assign({},REGLAGES_DEFAUT),
        reglagesMaj:0,supprimes:{},tc:{},notifs:[]};
 
@@ -312,19 +331,39 @@ function navitiaDate(ev,marge){
     +pad(d.getHours())+pad(d.getMinutes())+"00";
 }
 
+function fournisseurActif(){
+  const f=FOURNISSEURS[S.reglages.fournisseur]||FOURNISSEURS.prim;
+  const base=(S.reglages.fournisseur==="perso")
+    ? (S.reglages.baseTC||"").replace(/\/+$/,"") : f.base;
+  return{base:base,auth:f.auth,nom:f.nom};
+}
+
 async function navitiaTrajet(coordDe,coordVers,arriveeAvant){
-  const u="https://api.navitia.io/v1/journeys"
+  const f=fournisseurActif();
+  if(!f.base)throw new Error("aucune adresse de service renseignée");
+  const u=f.base+"/journeys"
     +"?from="+coordDe[0]+";"+coordDe[1]
     +"&to="+coordVers[0]+";"+coordVers[1]
     +"&datetime="+arriveeAvant
     +"&datetime_represents=arrival"
-    +"&max_nb_journeys=1"
-    +"&key="+encodeURIComponent(sync.navitia);
-  const r=await fetch(u);
-  if(r.status===401)throw new Error("clé Navitia refusée");
-  if(r.status===404)throw new Error("aucune couverture transports pour ces lieux");
-  if(r.status===429)throw new Error("quota Navitia atteint pour aujourd'hui");
-  if(!r.ok)throw new Error("Navitia a répondu "+r.status);
+    +"&max_nb_journeys=1";
+  const en={};
+  if(f.auth==="basic")en["Authorization"]="Basic "+btoa(sync.navitia+":");
+  else en["apikey"]=sync.navitia;
+
+  let r;
+  try{
+    r=await fetch(u,{headers:en});
+  }catch(e){
+    /* fetch ne rejette que sur panne réseau ou blocage CORS : le distinguer
+       évite de faire chercher une erreur de clé là où il n'y en a pas */
+    throw new Error("appel bloqué par le navigateur (CORS) ou réseau indisponible — "
+      +"le service refuse peut-être les requêtes venues d'une page web");
+  }
+  if(r.status===401||r.status===403)throw new Error("clé refusée par "+f.nom);
+  if(r.status===404)throw new Error("aucune couverture pour ces lieux chez "+f.nom);
+  if(r.status===429)throw new Error("quota journalier atteint");
+  if(!r.ok)throw new Error(f.nom+" a répondu "+r.status);
   const d=await r.json();
   if(!d.journeys||!d.journeys.length)
     throw new Error("aucun itinéraire en transports trouvé");
@@ -834,10 +873,19 @@ function reglagesHTML(){
     +'<select id="r-mode" data-r="mode">'
     +opt("transports",r.mode,"Transports en commun")
     +opt("voiture",r.mode,"Voiture / taxi")+'</select></div>'
-  +'<div class="champ large"><label for="s-nav">Clé Navitia (transports en commun)</label>'
+  +'<div class="champ large"><label for="r-four">Service d\'itinéraires</label>'
+    +'<select id="r-four" data-r="fournisseur">'
+    +Object.keys(FOURNISSEURS).map(k=>opt(k,r.fournisseur,FOURNISSEURS[k].nom)).join("")
+    +'</select></div>'
+  +(r.fournisseur==="perso"
+    ?'<div class="champ large"><label for="r-btc">Adresse du service</label>'
+      +'<input id="r-btc" data-r="baseTC" value="'+esc(r.baseTC||"")
+      +'" placeholder="https://exemple/v1/coverage/xx"></div>':"")
+  +'<div class="champ large"><label for="s-nav">Clé d\'accès au service</label>'
     +'<input id="s-nav" type="password" data-s="navitia" value="'+esc(sync.navitia||"")
     +'" autocomplete="off" placeholder="requise en mode transports"></div>'
   +'</div>'
+  +'<div class="note">'+esc((FOURNISSEURS[r.fournisseur]||{}).aide||"")+'</div>'
   +'<div class="note">Sans adresse de départ, aucun trajet ne peut être calculé vers ton '
     +'premier tournoi de la journée, et le rappel se limite à une heure avant le début.</div>'
 

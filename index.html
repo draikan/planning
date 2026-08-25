@@ -73,12 +73,28 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .creneau{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:15px;color:var(--laiton-clair)}
 .carte.conflit .creneau{color:var(--conflit)}
 .nom{font-family:'Bricolage Grotesque',sans-serif;font-weight:600;font-size:17px}
+.boutique{font-family:'Instrument Sans',sans-serif;font-weight:500;font-size:13px;
+  color:var(--laiton);margin-left:8px;letter-spacing:.01em}
+.boutique::before{content:"· ";color:var(--feutre3)}
 .meta{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--craie-dim);
   margin-top:5px;display:flex;gap:6px;flex-wrap:wrap}
 .meta i{font-style:normal;color:var(--feutre3)}
 .alerte{margin-top:9px;padding:7px 10px;background:rgba(226,72,61,.12);
   border-left:2px solid var(--conflit);font-size:12.5px;color:#F0A9A3}
 .actions{display:flex;gap:4px;margin-top:8px}
+.itin{margin-top:10px;padding-top:9px;border-top:1px solid var(--feutre3);
+  display:flex;flex-direction:column;gap:7px}
+.itin-t{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--craie-dim);margin-bottom:1px}
+.et{display:flex;align-items:flex-start;gap:9px;font-size:12.5px;line-height:1.35}
+.badge{font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;
+  padding:3px 7px;border-radius:2px;background:var(--laiton);color:#14241D;
+  flex:none;min-width:30px;text-align:center;margin-top:1px}
+.et.marche .badge{background:transparent;border:1px dashed var(--craie-dim);
+  color:var(--craie-dim);font-weight:400}
+.et-txt{min-width:0;word-break:break-word}
+.et-dir{color:var(--craie-dim);font-size:11.5px}
+.et-h{font-family:'JetBrains Mono',monospace;color:var(--laiton-clair);font-size:11px}
 
 .form{background:var(--feutre2);border:1px solid var(--feutre3);padding:18px;
   margin-bottom:26px;border-radius:2px}
@@ -185,7 +201,7 @@ const FOURNISSEURS={
         base:"",auth:"apikey",
         aide:"Renseigne l\'adresse de base d\'une instance Navitia à laquelle tu as accès."}
 };
-let S={events:[],trajets:{},reglages:Object.assign({},REGLAGES_DEFAUT),
+let S={events:[],lieux:[],trajets:{},reglages:Object.assign({},REGLAGES_DEFAUT),
        reglagesMaj:0,supprimes:{},tc:{},notifs:[]};
 
 /* Identifiants de synchronisation : stockés à part, JAMAIS inclus dans la charge
@@ -196,16 +212,39 @@ let syncEtat=null;
 function loadSync(){try{const r=localStorage.getItem(CLE_SYNC);
   if(r)sync=Object.assign(sync,JSON.parse(r))}catch(e){}}
 function saveSync(){try{localStorage.setItem(CLE_SYNC,JSON.stringify(sync))}catch(e){}}
-let draft=null, formOuvert=false, panneau=false, reglagesOuvert=false, occupe=false;
+let draft=null, lieuBrouillon=null, formOuvert=false, panneau=false,
+    reglagesOuvert=false, lieuxOuvert=false, occupe=false;
 
 function load(){try{const r=localStorage.getItem(CLE);if(r){
   const d=JSON.parse(r);
-  S={events:d.events||[],trajets:d.trajets||{},
+  S={events:d.events||[],lieux:d.lieux||[],trajets:d.trajets||{},
      reglages:Object.assign({},REGLAGES_DEFAUT,d.reglages||{}),
      reglagesMaj:d.reglagesMaj||0,supprimes:d.supprimes||{},
      tc:d.tc||{},notifs:d.notifs||[]};
 }}catch(e){}}
 function save(){try{localStorage.setItem(CLE,JSON.stringify(S));return true}catch(e){return false}}
+
+/* ---------- lieux favoris ---------- */
+function lieuParId(id){return (S.lieux||[]).find(l=>l.id===id)||null}
+
+/* Nom affiché d'un tournoi : nom de l'épreuve suivi de la boutique. */
+function nomComplet(ev){
+  const n=ev.nom||"Sans nom";
+  return ev.lieuNom?n+" — "+ev.lieuNom:n;
+}
+
+/* Quand l'adresse d'un lieu change, les tournois qui s'y rattachent suivent,
+   et leurs itinéraires déjà calculés deviennent caducs. */
+function propagerLieu(l){
+  let touche=false;
+  S.events.forEach(e=>{
+    if(e.lieuId!==l.id)return;
+    if(e.lieu!==l.adresse||e.lieuNom!==l.nom){
+      e.lieu=l.adresse;e.lieuNom=l.nom;e.maj=Date.now();touche=true;
+    }
+  });
+  return touche;
+}
 
 /* ---------- conflits ---------- */
 function analyser(){
@@ -270,7 +309,8 @@ function trajetEntrant(items,i){
     /* on n'utilise le résultat que s'il correspond encore au lieu et à l'horaire */
     if(tc&&tc.empreinte===empreinteTC(de,vers,ev))
       return{minutes:tc.minutes,de:de,vers:vers,mode:"tc",
-             correspondances:tc.correspondances,lignes:tc.lignes||[]};
+             correspondances:tc.correspondances,lignes:tc.lignes||[],
+             etapes:tc.etapes||[],depart:tc.depart};
   }
   const t=S.trajets[cleTr(de,vers)];
   return t?{minutes:t.minutes,de:de,vers:vers,mode:"voiture"}:null;
@@ -322,7 +362,7 @@ async function calculerTrajets(){
    la date ou l'heure changent. */
 
 function empreinteTC(de,vers,ev){
-  return norm(de)+"|"+norm(vers)+"|"+ev.date+"|"+ev.heure;
+  return "v2|"+norm(de)+"|"+norm(vers)+"|"+ev.date+"|"+ev.heure;
 }
 
 function navitiaDate(ev,marge){
@@ -368,14 +408,36 @@ async function navitiaTrajet(coordDe,coordVers,arriveeAvant){
   if(!d.journeys||!d.journeys.length)
     throw new Error("aucun itinéraire en transports trouvé");
   const j=d.journeys[0];
-  const lignes=(j.sections||[])
-    .filter(x=>x.type==="public_transport"&&x.display_informations)
-    .map(x=>x.display_informations.code||x.display_informations.commercial_mode||"")
-    .filter(Boolean);
+
+  /* On conserve le détail de chaque section : c'est lui qui permet d'afficher
+     la ligne, la station de montée et la direction à suivre. */
+  const etapes=(j.sections||[]).map(sec=>{
+    const min=Math.round((sec.duration||0)/60);
+    if(sec.type==="public_transport"){
+      const di=sec.display_informations||{};
+      return{t:"tc",min:min,
+        code:di.code||di.commercial_mode||"?",
+        mode:di.commercial_mode||"",
+        couleur:di.color||"",
+        encre:di.text_color||"",
+        direction:di.direction||di.headsign||"",
+        de:(sec.from&&sec.from.name)||"",
+        vers:(sec.to&&sec.to.name)||"",
+        depart:sec.departure_date_time||"",
+        arrivee:sec.arrival_date_time||""};
+    }
+    if(sec.type==="street_network"||sec.type==="transfer"||sec.type==="crow_fly"){
+      return min>=1?{t:"marche",min:min,vers:(sec.to&&sec.to.name)||""}:null;
+    }
+    if(sec.type==="waiting")return min>=2?{t:"attente",min:min}:null;
+    return null;
+  }).filter(Boolean);
+
+  const lignes=etapes.filter(e=>e.t==="tc").map(e=>e.code);
   return{minutes:Math.round(j.duration/60),
          correspondances:j.nb_transfers,
          depart:j.departure_date_time,
-         lignes:lignes};
+         lignes:lignes,etapes:etapes};
 }
 
 async function calculerTC(){
@@ -416,10 +478,13 @@ function alarmes(){
     const marge=Number(S.reglages.margeDepart)||0;
     if(t){
       const depart=x.debut-(t.minutes+marge)*60000;
+      const prem=(t.etapes||[]).find(e=>e.t==="tc");
       out.push({cle:x.ev.id+":trajet",quand:depart,type:"trajet",ev:x.ev,
         titre:"Départ pour "+(x.ev.nom||"ton tournoi"),
         texte:fdur(t.minutes)+" de trajet depuis "+t.de+". Début à "+
-          hhmm(minMinuit(x.ev.heure))+"."});
+          hhmm(minMinuit(x.ev.heure))+"."
+          +(prem?" Ligne "+prem.code+" à "+prem.de
+            +(prem.direction?", direction "+prem.direction:"")+".":"")});
       const prevenir=depart-(Number(S.reglages.alerteTrajet)||0)*60000;
       out.push({cle:x.ev.id+":preavis",quand:prevenir,type:"preavis",ev:x.ev,
         titre:"Prépare-toi : "+(x.ev.nom||"tournoi"),
@@ -432,6 +497,18 @@ function alarmes(){
     }
   });
   return out.filter(a=>a.quand>0).sort((a,b)=>a.quand-b.quand);
+}
+
+/* Version texte compacte de l'itinéraire, pour l'agenda et les notifications. */
+function itineraireTexte(t){
+  if(!t||t.mode!=="tc"||!t.etapes||!t.etapes.length)return "";
+  return t.etapes.map(e=>{
+    if(e.t==="marche")return "A pied "+fdur(e.min)+(e.vers?" jusqu'a "+e.vers:"");
+    if(e.t==="attente")return "Attente "+fdur(e.min);
+    return e.code+" a "+e.de+(e.depart?" ("+heureNavitia(e.depart)+")":"")
+      +(e.direction?" dir. "+e.direction:"")
+      +(e.vers?", descendre a "+e.vers:"");
+  }).join(" | ");
 }
 
 /* ---------- export iCalendar ---------- */
@@ -472,7 +549,7 @@ function genererICS(){
     L.push("DTSTAMP:"+now);
     L.push("DTSTART:"+icsDate(x.debut));
     L.push("DTEND:"+icsDate(x.fin));
-    L.push(icsPlier("SUMMARY:"+icsEchap((enConflit?"[CONFLIT] ":"")+(e.nom||"Tournoi"))));
+    L.push(icsPlier("SUMMARY:"+icsEchap((enConflit?"[CONFLIT] ":"")+nomComplet(e))));
     if(e.lieu)L.push(icsPlier("LOCATION:"+icsEchap(e.lieu)));
     L.push(icsPlier("DESCRIPTION:"+icsEchap(desc)));
     if(e.statut==="envisage")L.push("STATUS:TENTATIVE");
@@ -493,10 +570,13 @@ function genererICS(){
       L.push("DTSTAMP:"+now);
       L.push("DTSTART:"+icsDate(dep));
       L.push("DTEND:"+icsDate(x.debut));
-      L.push(icsPlier("SUMMARY:"+icsEchap("Trajet vers "+(e.nom||"tournoi"))));
+      L.push(icsPlier("SUMMARY:"+icsEchap("Trajet vers "+nomComplet(e))));
       L.push(icsPlier("LOCATION:"+icsEchap(t.de+" -> "+t.vers)));
+      const detail=itineraireTexte(t);
       L.push(icsPlier("DESCRIPTION:"+icsEchap(
-        fdur(t.minutes)+" de trajet, "+fdur(marge)+" de marge.")));
+        fdur(t.minutes)+" de trajet, "+fdur(marge)+" de marge."
+        +(t.correspondances!=null?" "+t.correspondances+" correspondance(s).":"")
+        +(detail?"\n\n"+detail:""))));
       L.push("BEGIN:VALARM","ACTION:DISPLAY","TRIGGER:-PT"+preavis+"M");
       L.push(icsPlier("DESCRIPTION:"+icsEchap("Départ dans "+fdur(preavis)+
         " vers "+t.vers)));
@@ -590,7 +670,7 @@ async function gistLire(){
 }
 
 function chargeUtile(){
-  return{v:1,maj:Date.now(),events:S.events,trajets:S.trajets,tc:S.tc,
+  return{v:1,maj:Date.now(),events:S.events,lieux:S.lieux,trajets:S.trajets,tc:S.tc,
     supprimes:S.supprimes,reglages:S.reglages,reglagesMaj:S.reglagesMaj||0};
 }
 
@@ -618,6 +698,14 @@ function fusionner(dist){
     if(!d||(e.maj||0)>=(d.maj||0))parId[e.id]=e;
   });
 
+  /* mêmes règles pour les lieux favoris : version la plus récente, suppression datée */
+  const lieuxId={};
+  (dist.lieux||[]).forEach(l=>{lieuxId[l.id]=l});
+  (S.lieux||[]).forEach(l=>{
+    const d=lieuxId[l.id];
+    if(!d||(l.maj||0)>=(d.maj||0))lieuxId[l.id]=l;
+  });
+
   const supp=Object.assign({},dist.supprimes||{});
   Object.keys(S.supprimes||{}).forEach(id=>{
     supp[id]=Math.max(supp[id]||0,S.supprimes[id]);
@@ -631,6 +719,10 @@ function fusionner(dist){
     restants.push(e);
   });
   S.events=restants;
+
+  S.lieux=Object.keys(lieuxId).map(id=>lieuxId[id])
+    .filter(l=>!(supp[l.id]&&supp[l.id]>=(l.maj||0)))
+    .sort((a,b)=>(a.nom||"").localeCompare(b.nom||"","fr"));
 
   /* purge des traces de plus de 90 jours */
   const limite=Date.now()-90*864e5;
@@ -677,7 +769,8 @@ function syncDifferee(){
 }
 
 /* ---------- rendu ---------- */
-const VIDE={nom:"",jeu:JEUX[0],format:"",date:"",heure:"09:00",lieu:"",frais:"",
+const VIDE={nom:"",jeu:JEUX[0],format:"",date:"",heure:"09:00",lieu:"",
+  lieuId:"",lieuNom:"",frais:"",
   participants:"32",bo:"bo3",cut:"top8",drafts:false,statut:"inscrit",dureeManuelle:null,id:null};
 
 function render(){
@@ -703,10 +796,12 @@ function render(){
 
   h+='<div class="barre"><button class="primaire" data-a="nouveau">Ajouter un tournoi</button>'
     +'<button data-a="panneau">Trajets'+(paires.length?" ("+paires.length+")":"")+'</button>'
+    +'<button data-a="lieux">Lieux'+((S.lieux||[]).length?" ("+S.lieux.length+")":"")+'</button>'
     +'<button data-a="reglages">Rappels</button></div>';
 
   if(formOuvert)h+=formHTML();
   if(panneau)h+=(S.reglages.mode==="transports"?trajetsTCHTML():trajetsHTML(paires));
+  if(lieuxOuvert)h+=lieuxHTML();
   if(reglagesOuvert)h+=reglagesHTML();
 
   h+='<div class="legende">'
@@ -742,7 +837,8 @@ function jourHTML(date,items,conflits){
   items.forEach((x,i)=>{
     const c=conflits.has(x.ev.id)?"conflit":(x.ev.statut==="envisage"?"envisage":"");
     h+='<div class="seg '+c+'" style="left:'+pct(mins[i])+'%;width:'+Math.max(1.5,(x.duree/span)*100)
-      +'%" title="'+esc(x.ev.nom)+' — '+hhmm(mins[i])+' à '+hhmm(fins[i])+'">'+esc(x.ev.nom)+'</div>';
+      +'%" title="'+esc(nomComplet(x.ev))+' — '+hhmm(mins[i])+' à '+hhmm(fins[i])+'">'
+      +esc(nomComplet(x.ev))+'</div>';
   });
   const tous=analyser().items;
   items.forEach((x,i)=>{
@@ -756,16 +852,59 @@ function jourHTML(date,items,conflits){
       +'%" title="Trajet '+fdur(t.minutes)+' depuis '+esc(t.de)+'"></div>';
   });
   h+='</div>';
-  items.forEach((x,i)=>{h+=carteHTML(x,mins[i],fins[i],conflits.get(x.ev.id))});
+  items.forEach((x,i)=>{
+    const gi=tous.findIndex(y=>y.ev.id===x.ev.id);
+    h+=carteHTML(x,mins[i],fins[i],conflits.get(x.ev.id),trajetEntrant(tous,gi));
+  });
   return h+'</div>';
 }
 
-function carteHTML(x,d,f,cs){
+
+/* Détail du trajet en transports : ligne, station de montée, direction.
+   Affiché sous les informations du tournoi, une étape par ligne. */
+function heureNavitia(s){
+  return (s&&s.length>=13)?s.slice(9,11)+":"+s.slice(11,13):"";
+}
+
+function itineraireHTML(t){
+  if(!t||t.mode!=="tc"||!t.etapes||!t.etapes.length)return "";
+  let h='<div class="itin"><div class="itin-t">Trajet aller · '+fdur(t.minutes)
+    +(t.correspondances!=null?' · '+t.correspondances+' correspondance'
+      +(t.correspondances>1?'s':''):'')
+    +(t.depart?' · départ '+heureNavitia(t.depart):'')+'</div>';
+
+  t.etapes.forEach(e=>{
+    if(e.t==="marche"){
+      h+='<div class="et marche"><span class="badge">à pied</span>'
+        +'<span class="et-txt">'+fdur(e.min)
+        +(e.vers?' jusqu\'à '+esc(e.vers):'')+'</span></div>';
+      return;
+    }
+    if(e.t==="attente"){
+      h+='<div class="et marche"><span class="badge">attente</span>'
+        +'<span class="et-txt">'+fdur(e.min)+'</span></div>';
+      return;
+    }
+    const st=e.couleur?' style="background:#'+esc(e.couleur)+';color:#'
+      +esc(e.encre||"FFFFFF")+'"':"";
+    h+='<div class="et"><span class="badge"'+st+'>'+esc(e.code)+'</span>'
+      +'<span class="et-txt"><b>'+esc(e.de)+'</b>'
+      +(e.depart?' <span class="et-h">'+heureNavitia(e.depart)+'</span>':'')
+      +(e.direction?'<br><span class="et-dir">direction '+esc(e.direction)+'</span>':'')
+      +(e.vers?'<br><span class="et-dir">descendre à '+esc(e.vers)
+        +(e.arrivee?' · '+heureNavitia(e.arrivee):'')+'</span>':'')
+      +'</span></div>';
+  });
+  return h+'</div>';
+}
+
+function carteHTML(x,d,f,cs,traj){
   const e=x.ev, k=!!cs;
   let h='<div class="carte'+(k?" conflit":"")+'"><div class="rail"'
     +(k?"":' style="background:'+(STATUTS[e.statut]||{}).c+'"')+'></div><div class="corps">';
   h+='<div class="l1"><span class="creneau">'+hhmm(d)+' – '+hhmm(f)+'</span>'
-    +'<span class="nom">'+esc(e.nom||"Sans nom")+'</span></div>';
+    +'<span class="nom">'+esc(e.nom||"Sans nom")
+    +(e.lieuNom?'<span class="boutique">'+esc(e.lieuNom)+'</span>':'')+'</span></div>';
   const m=[esc(e.jeu)];
   if(e.format)m.push(esc(e.format));
   m.push(e.bo==="bo3"?"Bo3":"Bo1");
@@ -776,6 +915,7 @@ function carteHTML(x,d,f,cs){
   if(e.frais)m.push(esc(e.frais)+" €");
   m.push((STATUTS[e.statut]||{}).label||"");
   h+='<div class="meta">'+m.map(s=>"<span>"+s+"</span>").join("<i>/</i>")+'</div>';
+  h+=itineraireHTML(traj);
   (cs||[]).forEach(c=>{
     h+='<div class="alerte">'+(c.type==="chevauchement"
       ?'Chevauche <b>'+esc(c.avec.nom||"un autre tournoi")+'</b>. Les deux créneaux se recouvrent.'
@@ -799,7 +939,15 @@ function formHTML(){
   +'<div class="champ"><label for="f-fmt">Format</label><input id="f-fmt" data-f="format" value="'+esc(v.format)+'" placeholder="Modern, Standard…"></div>'
   +'<div class="champ"><label for="f-date">Date</label><input id="f-date" type="date" data-f="date" value="'+esc(v.date)+'"></div>'
   +'<div class="champ"><label for="f-h">Début</label><input id="f-h" type="time" data-f="heure" value="'+esc(v.heure)+'"></div>'
-  +'<div class="champ large"><label for="f-lieu">Lieu</label><input id="f-lieu" data-f="lieu" value="'+esc(v.lieu)+'" placeholder="12 rue X, 75011 Paris"></div>'
+  +'<div class="champ large"><label for="f-lid">Boutique / lieu</label>'
+    +'<select id="f-lid" data-f="lieuId">'
+    +'<option value=""'+(v.lieuId?"":" selected")+'>— saisie manuelle —</option>'
+    +(S.lieux||[]).map(l=>opt(l.id,v.lieuId||"",l.nom)).join("")
+    +'</select></div>'
+  +'<div class="champ large"><label for="f-lieu">Adresse</label>'
+    +'<input id="f-lieu" data-f="lieu" value="'+esc(v.lieu)+'" placeholder="12 rue X, 75011 Paris"></div>'
+  +(v.lieuId?"":'<div class="champ large"><label for="f-lnom">Nom du lieu (facultatif)</label>'
+    +'<input id="f-lnom" data-f="lieuNom" value="'+esc(v.lieuNom||"")+'" placeholder="apparaîtra après le nom du tournoi"></div>')
   +'<div class="champ"><label for="f-nb">Participants attendus</label><input id="f-nb" type="number" min="2" data-f="participants" value="'+esc(v.participants)+'"></div>'
   +'<div class="champ"><label for="f-bo">Rondes</label><select id="f-bo" data-f="bo">'+opt("bo1",v.bo,"Bo1")+opt("bo3",v.bo,"Bo3")+'</select></div>'
   +'<div class="champ"><label for="f-cut">Top cut</label><select id="f-cut" data-f="cut">'
@@ -848,6 +996,46 @@ function apercuConflits(duree){
   return out;
 }
 
+
+
+function lieuxHTML(){
+  let h='<div class="trajets"><div class="eyebrow" style="margin-bottom:12px">'
+    +'Boutiques et lieux enregistrés</div>';
+
+  if(!(S.lieux||[]).length){
+    h+='<div style="color:var(--craie-dim);font-size:13px;margin-bottom:14px">'
+      +'Aucun lieu enregistré. Ajoute tes boutiques habituelles ci-dessous : '
+      +'elles deviendront sélectionnables en un geste à la création d\'un tournoi.</div>';
+  }else{
+    S.lieux.forEach(l=>{
+      const usages=S.events.filter(e=>e.lieuId===l.id).length;
+      h+='<div class="tr-l"><div class="tr-n"><b>'+esc(l.nom)+'</b>'
+        +'<br><span style="color:var(--craie-dim);font-size:11.5px">'+esc(l.adresse)
+        +(usages?' · '+usages+' tournoi'+(usages>1?'s':''):'')+'</span></div>'
+        +'<button class="discret" data-a="lieu-mod" data-id="'+l.id+'">Modifier</button>'
+        +'<button class="discret" data-a="lieu-suppr" data-id="'+l.id+'">Retirer</button></div>';
+    });
+  }
+
+  const b=lieuBrouillon||{id:null,nom:"",adresse:""};
+  h+='<div class="eyebrow" style="margin:20px 0 10px">'
+    +(b.id?"Modifier le lieu":"Nouveau lieu")+'</div>'
+  +'<div class="grille">'
+  +'<div class="champ"><label for="l-nom">Nom</label>'
+    +'<input id="l-nom" data-l="nom" value="'+esc(b.nom)+'" placeholder="Le Repaire du Joueur"></div>'
+  +'<div class="champ"><label for="l-adr">Adresse</label>'
+    +'<input id="l-adr" data-l="adresse" value="'+esc(b.adresse)+'" '
+    +'placeholder="12 rue X, 75011 Paris"></div>'
+  +'</div>'
+  +'<div class="barre" style="margin:14px 0 0">'
+    +'<button class="primaire" data-a="lieu-valider">'+(b.id?"Enregistrer":"Ajouter le lieu")+'</button>'
+    +(b.id?'<button data-a="lieu-annuler">Annuler</button>':"")
+  +'</div>'
+  +'<div class="note">Une adresse précise — numéro, rue, code postal, ville — donne des '
+    +'itinéraires bien plus fiables. Modifier l\'adresse d\'un lieu la répercute sur tous '
+    +'les tournois qui s\'y rattachent, et marque leurs trajets à recalculer.</div>';
+  return h+'</div>';
+}
 
 function reglagesHTML(){
   const r=S.reglages;
@@ -946,7 +1134,7 @@ function trajetsTCHTML(){
     }else{
       droite='<span style="color:var(--craie-dim);font-size:12px">non calculé</span>';
     }
-    lignes.push('<div class="tr-l"><div class="tr-n">'+esc(x.ev.nom||"Sans nom")
+    lignes.push('<div class="tr-l"><div class="tr-n">'+esc(nomComplet(x.ev))
       +'<br><span style="color:var(--craie-dim);font-size:11.5px">'+esc(de)
       +' <span style="color:var(--feutre3)">→</span> '+esc(vers)
       +(valide&&tc.lignes&&tc.lignes.length?' · '+esc(tc.lignes.join(" › ")):'')
@@ -1002,6 +1190,12 @@ function brancher(){
       let v=el.type==="checkbox"?el.checked:el.value;
       if(k==="dureeManuelle")v=(v===""?null:Number(v));
       draft[k]=v;
+      if(k==="lieuId"){
+        const l=lieuParId(v);
+        if(l){draft.lieu=l.adresse;draft.lieuNom=l.nom}
+        else{draft.lieuNom=""}
+        render();return;    /* on redessine : adresse et nom viennent de changer */
+      }
       const e=document.getElementById("estim");
       if(e)e.innerHTML=estimHTML();
       const b=document.querySelector('[data-a="valider"]');
@@ -1018,6 +1212,12 @@ function brancher(){
   document.querySelectorAll("[data-s]").forEach(el=>{
     el.addEventListener("change",()=>{
       sync[el.dataset.s]=el.value.trim();saveSync();render();
+    });
+  });
+  document.querySelectorAll("[data-l]").forEach(el=>{
+    el.addEventListener("input",()=>{
+      lieuBrouillon=Object.assign({id:null,nom:"",adresse:""},lieuBrouillon);
+      lieuBrouillon[el.dataset.l]=el.value;
     });
   });
   document.querySelectorAll("[data-tc]").forEach(el=>{
@@ -1057,6 +1257,39 @@ function action(a,id){
   }
   else if(a==="panneau"){panneau=!panneau;render()}
   else if(a==="reglages"){reglagesOuvert=!reglagesOuvert;render()}
+  else if(a==="lieux"){lieuxOuvert=!lieuxOuvert;if(!lieuxOuvert)lieuBrouillon=null;render()}
+  else if(a==="lieu-mod"){lieuBrouillon=Object.assign({},lieuParId(id));render()}
+  else if(a==="lieu-annuler"){lieuBrouillon=null;render()}
+  else if(a==="lieu-valider"){
+    const b=lieuBrouillon||{};
+    if(!(b.nom||"").trim()||!(b.adresse||"").trim()){
+      alert("Un lieu a besoin d'un nom et d'une adresse.");return;
+    }
+    b.nom=b.nom.trim();b.adresse=b.adresse.trim();b.maj=Date.now();
+    if(b.id){
+      S.lieux=S.lieux.map(l=>l.id===b.id?b:l);
+      propagerLieu(b);          /* les tournois rattachés suivent l'adresse */
+    }else{
+      b.id="l"+Date.now();
+      S.lieux.push(b);
+    }
+    S.lieux.sort((x,y)=>(x.nom||"").localeCompare(y.nom||"","fr"));
+    lieuBrouillon=null;save();render();syncDifferee();
+  }
+  else if(a==="lieu-suppr"){
+    const l=lieuParId(id);
+    const n=S.events.filter(e=>e.lieuId===id).length;
+    const msg=n?"Ce lieu est utilisé par "+n+" tournoi"+(n>1?"s":"")
+        +". Ils conserveront l'adresse mais perdront le rattachement. Continuer ?"
+      :"Retirer « "+(l?l.nom:"")+" » des lieux enregistrés ?";
+    if(confirm(msg)){
+      S.events.forEach(e=>{if(e.lieuId===id){e.lieuId="";e.maj=Date.now()}});
+      S.lieux=S.lieux.filter(x=>x.id!==id);
+      S.supprimes[id]=Date.now();
+      if(lieuBrouillon&&lieuBrouillon.id===id)lieuBrouillon=null;
+      save();render();syncDifferee();
+    }
+  }
   else if(a==="ics"){exporterICS()}
   else if(a==="notifs"){demanderNotifs()}
   else if(a==="sync"){synchroniser(false)}

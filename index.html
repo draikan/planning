@@ -165,10 +165,27 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 
 /* ---------- état ---------- */
 const CLE="jcc.agenda.v1";
-let S={events:[],trajets:{}};
-let draft=null, formOuvert=false, panneau=false, occupe=false;
+const REGLAGES_DEFAUT={base:"",margeDepart:15,alerteTrajet:30};
+let S={events:[],trajets:{},reglages:Object.assign({},REGLAGES_DEFAUT),
+       reglagesMaj:0,supprimes:{},notifs:[]};
 
-function load(){try{const r=localStorage.getItem(CLE);if(r)S=JSON.parse(r)}catch(e){}}
+/* Identifiants de synchronisation : stockés à part, JAMAIS inclus dans la charge
+   envoyée au gist ni dans l'export. Un jeton ne doit pas voyager. */
+const CLE_SYNC="jcc.sync.v1";
+let sync={token:"",gistId:"",dernier:0};
+let syncEtat=null;
+function loadSync(){try{const r=localStorage.getItem(CLE_SYNC);
+  if(r)sync=Object.assign(sync,JSON.parse(r))}catch(e){}}
+function saveSync(){try{localStorage.setItem(CLE_SYNC,JSON.stringify(sync))}catch(e){}}
+let draft=null, formOuvert=false, panneau=false, reglagesOuvert=false, occupe=false;
+
+function load(){try{const r=localStorage.getItem(CLE);if(r){
+  const d=JSON.parse(r);
+  S={events:d.events||[],trajets:d.trajets||{},
+     reglages:Object.assign({},REGLAGES_DEFAUT,d.reglages||{}),
+     reglagesMaj:d.reglagesMaj||0,supprimes:d.supprimes||{},
+     notifs:d.notifs||[]};
+}}catch(e){}}
 function save(){try{localStorage.setItem(CLE,JSON.stringify(S));return true}catch(e){return false}}
 
 /* ---------- conflits ---------- */
@@ -198,17 +215,39 @@ function analyser(){
   return{items:items,conflits:conflits};
 }
 
-function pairesTrajet(items){
+/* Origine du déplacement vers l'événement i : le tournoi précédent s'il est
+   assez proche dans le temps, sinon l'adresse de départ habituelle. */
+function origineDe(items,i){
+  const cible=items[i];
+  if(!cible.ev.lieu)return null;
+  const prec=items[i-1];
+  if(prec&&prec.ev.lieu&&cible.debut-prec.fin<=504e5)return prec.ev.lieu;
+  const b=(S.reglages.base||"").trim();
+  return b||null;
+}
+
+/* Toutes les paires de lieux dont l'outil a besoin d'un temps de trajet. */
+function pairesRequises(items){
   const out=[];
-  for(let i=0;i<items.length-1;i++){
-    const a=items[i],b=items[i+1];
-    if(!a.ev.lieu||!b.ev.lieu)continue;
-    if(norm(a.ev.lieu)===norm(b.ev.lieu))continue;
-    if(b.debut-a.fin>504e5)continue;
-    const k=cleTr(a.ev.lieu,b.ev.lieu);
-    if(!out.some(p=>p.cle===k))out.push({cle:k,de:a.ev.lieu,vers:b.ev.lieu});
+  for(let i=0;i<items.length;i++){
+    const de=origineDe(items,i);
+    if(!de)continue;
+    const vers=items[i].ev.lieu;
+    if(norm(de)===norm(vers))continue;
+    const k=cleTr(de,vers);
+    if(!out.some(p=>p.cle===k))out.push({cle:k,de:de,vers:vers});
   }
   return out;
+}
+
+/* Temps de trajet connu pour rejoindre l'événement i, ou null. */
+function trajetEntrant(items,i){
+  const de=origineDe(items,i);
+  if(!de)return null;
+  const vers=items[i].ev.lieu;
+  if(norm(de)===norm(vers))return null;
+  const t=S.trajets[cleTr(de,vers)];
+  return t?{minutes:t.minutes,de:de,vers:vers}:null;
 }
 
 /* ---------- géocodage + itinéraire (BAN + OSRM, sans clé) ---------- */
@@ -230,7 +269,7 @@ async function itineraire(a,b){
 }
 async function calculerTrajets(){
   const {items}=analyser();
-  const paires=pairesTrajet(items);
+  const paires=pairesRequises(items);
   occupe=true;render();
   const echecs=[];
   for(const p of paires){
@@ -247,13 +286,285 @@ async function calculerTrajets(){
     "\n\nPrécise le lieu (rue, code postal, ville) ou saisis la durée à la main.");
 }
 
+
+/* ---------- alarmes ---------- */
+/* Deux rappels par tournoi :
+   - "départ" : marge avant l'heure à laquelle il faut prendre la route ;
+   - "trajet" : au moment où il faut effectivement partir (début - temps de trajet). */
+function alarmes(){
+  const {items}=analyser();
+  const out=[];
+  items.forEach((x,i)=>{
+    const t=trajetEntrant(items,i);
+    const marge=Number(S.reglages.margeDepart)||0;
+    if(t){
+      const depart=x.debut-(t.minutes+marge)*60000;
+      out.push({cle:x.ev.id+":trajet",quand:depart,type:"trajet",ev:x.ev,
+        titre:"Départ pour "+(x.ev.nom||"ton tournoi"),
+        texte:fdur(t.minutes)+" de route depuis "+t.de+". Début à "+
+          hhmm(minMinuit(x.ev.heure))+"."});
+      const prevenir=depart-(Number(S.reglages.alerteTrajet)||0)*60000;
+      out.push({cle:x.ev.id+":preavis",quand:prevenir,type:"preavis",ev:x.ev,
+        titre:"Prépare-toi : "+(x.ev.nom||"tournoi"),
+        texte:"Départ dans "+fdur(Number(S.reglages.alerteTrajet)||0)+
+          " pour "+fdur(t.minutes)+" de route."});
+    }else{
+      out.push({cle:x.ev.id+":simple",quand:x.debut-60*60000,type:"simple",ev:x.ev,
+        titre:(x.ev.nom||"Tournoi")+" dans 1 h",
+        texte:(x.ev.lieu||"")+" — début à "+hhmm(minMinuit(x.ev.heure))+"."});
+    }
+  });
+  return out.filter(a=>a.quand>0).sort((a,b)=>a.quand-b.quand);
+}
+
+/* ---------- export iCalendar ---------- */
+function icsEchap(s){return String(s||"").replace(/\\/g,"\\\\").replace(/;/g,"\\;")
+  .replace(/,/g,"\\,").replace(/\r?\n/g,"\\n")}
+function icsPlier(l){
+  const o=[];let r=l;
+  while(r.length>73){o.push(r.slice(0,73));r=" "+r.slice(73)}
+  o.push(r);return o.join("\r\n");
+}
+function icsDate(ms){
+  const d=new Date(ms);
+  return d.getUTCFullYear()+pad(d.getUTCMonth()+1)+pad(d.getUTCDate())+"T"
+    +pad(d.getUTCHours())+pad(d.getUTCMinutes())+pad(d.getUTCSeconds())+"Z";
+}
+function genererICS(){
+  const {items,conflits}=analyser();
+  const now=icsDate(Date.now());
+  const L=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Creneaux//Agenda tournois//FR",
+    "CALSCALE:GREGORIAN","METHOD:PUBLISH","X-WR-CALNAME:Tournois"];
+
+  items.forEach((x,i)=>{
+    const e=x.ev, t=trajetEntrant(items,i);
+    const marge=Number(S.reglages.margeDepart)||0;
+    const preavis=Number(S.reglages.alerteTrajet)||0;
+    const enConflit=conflits.has(e.id);
+
+    const desc=[e.jeu,e.format,(e.bo==="bo3"?"Bo3":"Bo1"),
+      (e.participants?e.participants+" joueurs":""),
+      (e.cut!=="aucun"?e.cut:""),(e.frais?e.frais+" EUR":""),
+      (STATUTS[e.statut]||{}).label,
+      (t?"Trajet: "+fdur(t.minutes)+" depuis "+t.de:""),
+      (enConflit?"*** CONFLIT DETECTE ***":"")].filter(Boolean).join(" - ");
+
+    /* le tournoi lui-même */
+    L.push("BEGIN:VEVENT");
+    L.push("UID:"+e.id+"@creneaux");
+    L.push("DTSTAMP:"+now);
+    L.push("DTSTART:"+icsDate(x.debut));
+    L.push("DTEND:"+icsDate(x.fin));
+    L.push(icsPlier("SUMMARY:"+icsEchap((enConflit?"[CONFLIT] ":"")+(e.nom||"Tournoi"))));
+    if(e.lieu)L.push(icsPlier("LOCATION:"+icsEchap(e.lieu)));
+    L.push(icsPlier("DESCRIPTION:"+icsEchap(desc)));
+    if(e.statut==="envisage")L.push("STATUS:TENTATIVE");
+    /* rappel au moment de partir : au moins le temps du trajet */
+    const avant=t?(t.minutes+marge):60;
+    L.push("BEGIN:VALARM","ACTION:DISPLAY","TRIGGER:-PT"+avant+"M");
+    L.push(icsPlier("DESCRIPTION:"+icsEchap(t
+      ?"Il faut partir maintenant : "+fdur(t.minutes)+" de route depuis "+t.de
+      :"Tournoi dans 1 h")));
+    L.push("END:VALARM");
+    L.push("END:VEVENT");
+
+    /* le trajet, comme créneau bloqué à part entière */
+    if(t){
+      const dep=x.debut-(t.minutes+marge)*60000;
+      L.push("BEGIN:VEVENT");
+      L.push("UID:"+e.id+"-trajet@creneaux");
+      L.push("DTSTAMP:"+now);
+      L.push("DTSTART:"+icsDate(dep));
+      L.push("DTEND:"+icsDate(x.debut));
+      L.push(icsPlier("SUMMARY:"+icsEchap("Trajet vers "+(e.nom||"tournoi"))));
+      L.push(icsPlier("LOCATION:"+icsEchap(t.de+" -> "+t.vers)));
+      L.push(icsPlier("DESCRIPTION:"+icsEchap(
+        fdur(t.minutes)+" de route, "+fdur(marge)+" de marge.")));
+      L.push("BEGIN:VALARM","ACTION:DISPLAY","TRIGGER:-PT"+preavis+"M");
+      L.push(icsPlier("DESCRIPTION:"+icsEchap("Départ dans "+fdur(preavis)+
+        " vers "+t.vers)));
+      L.push("END:VALARM");
+      L.push("END:VEVENT");
+    }
+  });
+
+  L.push("END:VCALENDAR");
+  return L.join("\r\n")+"\r\n";
+}
+
+function exporterICS(){
+  const {items}=analyser();
+  if(!items.length){alert("Aucun tournoi à exporter.");return}
+  const b=new Blob([genererICS()],{type:"text/calendar;charset=utf-8"});
+  const u=URL.createObjectURL(b), a=document.createElement("a");
+  a.href=u;a.download="tournois.ics";a.click();
+  setTimeout(()=>URL.revokeObjectURL(u),1000);
+}
+
+/* ---------- notifications quand l'application est ouverte ---------- */
+function notifsAutorisees(){
+  return typeof Notification!=="undefined"&&Notification.permission==="granted";
+}
+async function demanderNotifs(){
+  if(typeof Notification==="undefined"){
+    alert("Ce navigateur ne gère pas les notifications.");return;
+  }
+  const p=await Notification.requestPermission();
+  if(p!=="granted")alert("Notifications refusées. Tu peux réactiver l'autorisation "
+    +"dans les réglages du site, ou t'appuyer sur l'export .ics.");
+  render();
+}
+async function montrer(titre,texte){
+  try{
+    const reg=("serviceWorker" in navigator)?await navigator.serviceWorker.getRegistration():null;
+    if(reg&&reg.showNotification)
+      await reg.showNotification(titre,{body:texte,icon:"icon-192.png",
+        badge:"icon-192.png",tag:titre,requireInteraction:true});
+    else new Notification(titre,{body:texte,icon:"icon-192.png"});
+  }catch(e){}
+}
+function verifierAlertes(){
+  if(!notifsAutorisees())return;
+  const now=Date.now(), vus=new Set(S.notifs);
+  let change=false;
+  alarmes().forEach(a=>{
+    if(vus.has(a.cle))return;
+    /* on déclenche dans la fenêtre [échéance, échéance + 20 min] pour rattraper
+       une app rouverte peu après, sans réveiller sur un rappel vieux d'hier */
+    if(now>=a.quand&&now-a.quand<12e5){
+      montrer(a.titre,a.texte);
+      S.notifs.push(a.cle);change=true;
+    }
+  });
+  /* purge des rappels dont l'événement est passé */
+  const ids=new Set(S.events.map(e=>e.id));
+  const avant=S.notifs.length;
+  S.notifs=S.notifs.filter(c=>ids.has(c.split(":")[0]));
+  if(change||S.notifs.length!==avant)save();
+}
+
+
+/* ---------- synchronisation par Gist GitHub ---------- */
+/* Un gist privé contient un seul fichier JSON. Chaque tournoi porte sa date de
+   modification, chaque suppression laisse une trace datée : deux appareils
+   modifiés hors ligne se réconcilient sans qu'aucun n'écrase l'autre. */
+
+const FICHIER_GIST="creneaux.json";
+
+async function gistAppel(url,opt){
+  const o=Object.assign({headers:{
+    "Authorization":"Bearer "+sync.token,
+    "Accept":"application/vnd.github+json",
+    "X-GitHub-Api-Version":"2022-11-28"}},opt||{});
+  const r=await fetch(url,o);
+  if(r.status===401)throw new Error("jeton refusé — vérifie qu'il est de type « classic » avec la case gist cochée");
+  if(r.status===403)throw new Error("accès interdit — la portée gist manque au jeton");
+  if(r.status===404)throw new Error("gist introuvable — l'identifiant est erroné ou le jeton n'y a pas accès");
+  if(!r.ok)throw new Error("GitHub a répondu "+r.status);
+  return r.json();
+}
+
+async function gistLire(){
+  const g=await gistAppel("https://api.github.com/gists/"+sync.gistId);
+  const f=g.files&&g.files[FICHIER_GIST];
+  if(!f)throw new Error("le gist ne contient pas "+FICHIER_GIST);
+  if(f.truncated&&f.raw_url){const r=await fetch(f.raw_url);return r.json()}
+  return JSON.parse(f.content);
+}
+
+function chargeUtile(){
+  return{v:1,maj:Date.now(),events:S.events,trajets:S.trajets,
+    supprimes:S.supprimes,reglages:S.reglages,reglagesMaj:S.reglagesMaj||0};
+}
+
+async function gistEcrire(){
+  const contenu=JSON.stringify(chargeUtile(),null,1);
+  const fichiers={};fichiers[FICHIER_GIST]={content:contenu};
+  if(sync.gistId){
+    await gistAppel("https://api.github.com/gists/"+sync.gistId,
+      {method:"PATCH",body:JSON.stringify({files:fichiers})});
+  }else{
+    const g=await gistAppel("https://api.github.com/gists",{method:"POST",
+      body:JSON.stringify({description:"Créneaux — agenda de tournois",
+        public:false,files:fichiers})});
+    sync.gistId=g.id;saveSync();
+  }
+}
+
+/* Fusion : pour chaque tournoi on garde la version la plus récemment modifiée ;
+   une suppression l'emporte si elle est postérieure à la dernière modification. */
+function fusionner(dist){
+  const parId={};
+  (dist.events||[]).forEach(e=>{parId[e.id]=e});
+  S.events.forEach(e=>{
+    const d=parId[e.id];
+    if(!d||(e.maj||0)>=(d.maj||0))parId[e.id]=e;
+  });
+
+  const supp=Object.assign({},dist.supprimes||{});
+  Object.keys(S.supprimes||{}).forEach(id=>{
+    supp[id]=Math.max(supp[id]||0,S.supprimes[id]);
+  });
+
+  const restants=[];
+  Object.keys(parId).forEach(id=>{
+    const e=parId[id];
+    if(supp[id]&&supp[id]>=(e.maj||0))return;   // suppression postérieure : on écarte
+    if(supp[id])delete supp[id];                // modification postérieure : la trace tombe
+    restants.push(e);
+  });
+  S.events=restants;
+
+  /* purge des traces de plus de 90 jours */
+  const limite=Date.now()-90*864e5;
+  Object.keys(supp).forEach(id=>{if(supp[id]<limite)delete supp[id]});
+  S.supprimes=supp;
+
+  /* trajets : une valeur saisie à la main l'emporte toujours */
+  const tr=Object.assign({},dist.trajets||{});
+  Object.keys(S.trajets).forEach(k=>{
+    const l=S.trajets[k], d=tr[k];
+    if(!d||l.source==="manuel"||d.source!=="manuel")tr[k]=l;
+  });
+  S.trajets=tr;
+
+  if((dist.reglagesMaj||0)>(S.reglagesMaj||0)){
+    S.reglages=Object.assign({},REGLAGES_DEFAUT,dist.reglages||{});
+    S.reglagesMaj=dist.reglagesMaj;
+  }
+}
+
+async function synchroniser(silencieux){
+  if(!sync.token){
+    if(!silencieux)alert("Renseigne d'abord un jeton GitHub dans le panneau Rappels.");
+    return;
+  }
+  syncEtat="cours";render();
+  try{
+    if(sync.gistId)fusionner(await gistLire());
+    await gistEcrire();
+    sync.dernier=Date.now();saveSync();save();
+    syncEtat=null;render();
+  }catch(e){
+    syncEtat="erreur:"+e.message;render();
+    if(!silencieux)alert("Synchronisation impossible.\n\n"+e.message);
+  }
+}
+
+/* appelée après chaque écriture locale ; ne bloque jamais l'interface */
+function syncDifferee(){
+  if(!sync.token)return;
+  clearTimeout(syncDifferee._t);
+  syncDifferee._t=setTimeout(()=>synchroniser(true),2500);
+}
+
 /* ---------- rendu ---------- */
 const VIDE={nom:"",jeu:JEUX[0],format:"",date:"",heure:"09:00",lieu:"",frais:"",
   participants:"32",bo:"bo3",cut:"top8",drafts:false,statut:"inscrit",dureeManuelle:null,id:null};
 
 function render(){
   const {items,conflits}=analyser();
-  const paires=pairesTrajet(items);
+  const paires=pairesRequises(items);
   const now=Date.now();
   const aVenir=items.filter(x=>x.fin>=now);
   const nbC=aVenir.filter(x=>conflits.has(x.ev.id)).length;
@@ -273,10 +584,12 @@ function render(){
     +'</div>';
 
   h+='<div class="barre"><button class="primaire" data-a="nouveau">Ajouter un tournoi</button>'
-    +'<button data-a="panneau">Trajets'+(paires.length?" ("+paires.length+")":"")+'</button></div>';
+    +'<button data-a="panneau">Trajets'+(paires.length?" ("+paires.length+")":"")+'</button>'
+    +'<button data-a="reglages">Rappels</button></div>';
 
   if(formOuvert)h+=formHTML();
   if(panneau)h+=trajetsHTML(paires);
+  if(reglagesOuvert)h+=reglagesHTML();
 
   h+='<div class="legende">'
     +'<span><i class="pastille" style="background:var(--laiton)"></i> créneau bloqué</span>'
@@ -313,13 +626,16 @@ function jourHTML(date,items,conflits){
     h+='<div class="seg '+c+'" style="left:'+pct(mins[i])+'%;width:'+Math.max(1.5,(x.duree/span)*100)
       +'%" title="'+esc(x.ev.nom)+' — '+hhmm(mins[i])+' à '+hhmm(fins[i])+'">'+esc(x.ev.nom)+'</div>';
   });
-  items.slice(0,-1).forEach((x,i)=>{
-    const n=items[i+1];
-    if(norm(x.ev.lieu)===norm(n.ev.lieu))return;
-    const t=S.trajets[cleTr(x.ev.lieu,n.ev.lieu)];
+  const tous=analyser().items;
+  items.forEach((x,i)=>{
+    const gi=tous.findIndex(y=>y.ev.id===x.ev.id);
+    const t=trajetEntrant(tous,gi);
     if(!t)return;
-    h+='<div class="seg-trajet" style="left:'+pct(fins[i])+'%;width:'+((t.minutes/span)*100)
-      +'%" title="Trajet '+fdur(t.minutes)+'"></div>';
+    const dep=mins[i]-t.minutes;
+    const gauche=Math.max(bmin,dep);
+    h+='<div class="seg-trajet" style="left:'+pct(gauche)+'%;width:'
+      +Math.max(0.5,((mins[i]-gauche)/span)*100)
+      +'%" title="Trajet '+fdur(t.minutes)+' depuis '+esc(t.de)+'"></div>';
   });
   h+='</div>';
   items.forEach((x,i)=>{h+=carteHTML(x,mins[i],fins[i],conflits.get(x.ev.id))});
@@ -414,6 +730,64 @@ function apercuConflits(duree){
   return out;
 }
 
+
+function reglagesHTML(){
+  const r=S.reglages;
+  const notifOK=(typeof Notification!=="undefined")&&Notification.permission==="granted";
+  const notifRef=(typeof Notification!=="undefined")&&Notification.permission==="denied";
+  let etat;
+  if(syncEtat==="cours")etat='<span style="color:var(--trajet)">synchronisation…</span>';
+  else if(syncEtat&&syncEtat.indexOf("erreur:")===0)
+    etat='<span style="color:var(--conflit)">'+esc(syncEtat.slice(7))+'</span>';
+  else if(sync.dernier)etat='<span style="color:var(--craie-dim)">dernier échange '
+    +new Date(sync.dernier).toLocaleString("fr-FR")+'</span>';
+  else etat='<span style="color:var(--craie-dim)">jamais synchronisé</span>';
+
+  return '<div class="trajets"><div class="eyebrow" style="margin-bottom:12px">Rappels</div>'
+  +'<div class="grille">'
+  +'<div class="champ large"><label for="r-base">Adresse de départ habituelle</label>'
+    +'<input id="r-base" data-r="base" value="'+esc(r.base)+'" placeholder="12 rue de la Paix, 75002 Paris"></div>'
+  +'<div class="champ"><label for="r-marge">Marge avant départ (min)</label>'
+    +'<input id="r-marge" type="number" min="0" step="5" data-r="margeDepart" value="'+esc(r.margeDepart)+'"></div>'
+  +'<div class="champ"><label for="r-pre">Préavis avant départ (min)</label>'
+    +'<input id="r-pre" type="number" min="0" step="5" data-r="alerteTrajet" value="'+esc(r.alerteTrajet)+'"></div>'
+  +'</div>'
+  +'<div class="note">Sans adresse de départ, aucun trajet ne peut être calculé vers ton '
+    +'premier tournoi de la journée, et le rappel se limite à une heure avant le début.</div>'
+
+  +'<div class="barre" style="margin:16px 0 0">'
+    +'<button data-a="ics">Exporter vers l\'agenda (.ics)</button>'
+    +(notifOK?'<button class="discret" disabled>Notifications actives</button>'
+      :(notifRef?'<button class="discret" disabled>Notifications refusées</button>'
+        :'<button data-a="notifs">Activer les notifications</button>'))
+  +'</div>'
+  +'<div class="note">Le fichier .ics porte tes alarmes : un rappel au moment de prendre '
+    +'la route, un autre en préavis. Une fois importé, c\'est ton agenda qui les déclenche, '
+    +'hors ligne et même application fermée. Les notifications ci-dessus ne fonctionnent '
+    +'que lorsque l\'application est ouverte.</div>'
+
+  +'<div class="eyebrow" style="margin:24px 0 12px">Synchronisation entre appareils</div>'
+  +'<div class="grille">'
+  +'<div class="champ large"><label for="s-tok">Jeton GitHub (classic, portée gist)</label>'
+    +'<input id="s-tok" type="password" data-s="token" value="'+esc(sync.token)+'" '
+    +'autocomplete="off" placeholder="ghp_…"></div>'
+  +'<div class="champ large"><label for="s-gid">Identifiant du gist</label>'
+    +'<input id="s-gid" data-s="gistId" value="'+esc(sync.gistId)+'" '
+    +'placeholder="laisse vide : il sera créé au premier échange"></div>'
+  +'</div>'
+  +'<div class="barre" style="margin:14px 0 0">'
+    +'<button data-a="sync"'+(syncEtat==="cours"?" disabled":"")+'>'
+    +(syncEtat==="cours"?"Échange en cours…":"Synchroniser maintenant")+'</button>'
+    +'<button class="discret" data-a="export">Exporter .json</button>'
+    +'<button class="discret" data-a="import">Importer .json</button>'
+  +'</div>'
+  +'<div class="note">'+etat+'<br>Le jeton reste sur cet appareil : il n\'est ni envoyé '
+    +'dans le gist, ni inclus dans l\'export. Crée-le sur github.com/settings/tokens, '
+    +'onglet « Tokens (classic) », en ne cochant que <b>gist</b>. Renseigne le même '
+    +'identifiant de gist sur ton second appareil pour les relier.</div>'
+  +'</div>';
+}
+
 function trajetsHTML(paires){
   let h='<div class="trajets"><div class="eyebrow" style="margin-bottom:12px">Temps de déplacement</div>';
   if(!paires.length){
@@ -454,6 +828,18 @@ function brancher(){
       if(b)b.disabled=!draft.date||!draft.heure;
     });
   });
+  document.querySelectorAll("[data-r]").forEach(el=>{
+    el.addEventListener("change",()=>{
+      S.reglages[el.dataset.r]=el.value;
+      S.reglagesMaj=Date.now();
+      save();render();syncDifferee();
+    });
+  });
+  document.querySelectorAll("[data-s]").forEach(el=>{
+    el.addEventListener("change",()=>{
+      sync[el.dataset.s]=el.value.trim();saveSync();render();
+    });
+  });
   document.querySelectorAll("[data-tr]").forEach(el=>{
     el.addEventListener("change",()=>{
       const k=el.dataset.tr;
@@ -468,18 +854,25 @@ function action(a,id){
   else if(a==="editer"){draft=Object.assign({},S.events.find(e=>e.id===id));formOuvert=true;render();window.scrollTo(0,0)}
   else if(a==="annuler"){formOuvert=false;draft=null;render()}
   else if(a==="valider"){
+    draft.maj=Date.now();
     if(draft.id)S.events=S.events.map(e=>e.id===draft.id?draft:e);
     else S.events.push(Object.assign({},draft,{id:"t"+Date.now()}));
     formOuvert=false;draft=null;
     if(!save())alert("Enregistrement impossible : le stockage du navigateur est plein ou bloqué.");
-    render();
+    render();syncDifferee();
   }
   else if(a==="suppr"){
     if(confirm("Retirer ce tournoi du planning ?")){
-      S.events=S.events.filter(e=>e.id!==id);save();render();
+      S.events=S.events.filter(e=>e.id!==id);
+      S.supprimes[id]=Date.now();      // trace datée, pour que la suppression se propage
+      save();render();syncDifferee();
     }
   }
   else if(a==="panneau"){panneau=!panneau;render()}
+  else if(a==="reglages"){reglagesOuvert=!reglagesOuvert;render()}
+  else if(a==="ics"){exporterICS()}
+  else if(a==="notifs"){demanderNotifs()}
+  else if(a==="sync"){synchroniser(false)}
   else if(a==="calc"){calculerTrajets()}
   else if(a==="export"){
     const b=new Blob([JSON.stringify(S,null,2)],{type:"application/json"});
@@ -491,7 +884,7 @@ function action(a,id){
     i.onchange=()=>{const f=i.files[0];if(!f)return;const r=new FileReader();
       r.onload=()=>{try{const d=JSON.parse(r.result);
         if(!d.events)throw new Error("format inattendu");
-        S={events:d.events,trajets:d.trajets||{}};save();render();
+        fusionner(d);save();render();syncDifferee();
       }catch(e){alert("Import impossible : "+e.message)}};
       r.readAsText(f)};
     i.click();
@@ -499,7 +892,14 @@ function action(a,id){
 }
 
 /* ---------- démarrage ---------- */
-load();render();
+loadSync();load();render();
+verifierAlertes();
+setInterval(verifierAlertes,60000);
+if(sync.token&&sync.gistId)synchroniser(true);
+/* on retente un échange au retour de l'application au premier plan */
+document.addEventListener("visibilitychange",()=>{
+  if(!document.hidden){verifierAlertes();if(sync.token&&sync.gistId)synchroniser(true)}
+});
 if("serviceWorker" in navigator)
   window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
 </script>

@@ -1,2 +1,2 @@
 # planning
-Easy management of your TCG tournaments.
+add your tournaments and organise your calendar

@@ -97,6 +97,16 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .alerte{margin-top:9px;padding:7px 10px;background:rgba(226,72,61,.12);
   border-left:2px solid var(--conflit);font-size:12.5px;color:#F0A9A3}
 .actions{display:flex;gap:4px;margin-top:8px}
+.imp-l{display:flex;align-items:flex-start;gap:10px;padding:9px 0;
+  border-bottom:1px solid var(--feutre3)}
+.imp-l:last-child{border-bottom:none}
+.imp-l.connu{opacity:.5}
+.imp-l input{margin-top:3px;flex:none}
+.imp-n{min-width:0;font-size:13.5px}
+.imp-d{color:var(--craie-dim);font-size:11.5px;font-family:'JetBrains Mono',monospace}
+.imp-b{font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.08em;
+  text-transform:uppercase;padding:2px 6px;border-radius:2px;flex:none;margin-top:2px;
+  background:var(--feutre3);color:var(--craie-dim)}
 textarea.colle{width:100%;background:var(--feutre);border:1px solid var(--feutre3);
   color:var(--craie);padding:11px;font-size:14px;border-radius:2px;resize:vertical;
   font-family:'JetBrains Mono',monospace;line-height:1.45}
@@ -234,6 +244,7 @@ function loadSync(){try{const r=localStorage.getItem(CLE_SYNC);
   if(r)sync=Object.assign(sync,JSON.parse(r))}catch(e){}}
 function saveSync(){try{localStorage.setItem(CLE_SYNC,JSON.stringify(sync))}catch(e){}}
 let voirPasses=false, ouverts={}, filtreJeu='', filtreLieu='';
+let importListe=null, importSel={};
 let draft=null, lieuBrouillon=null, importTexte='', importRapport=null,
     importOuvert=false, formOuvert=false, panneau=false,
     reglagesOuvert=false, lieuxOuvert=false, occupe=false;
@@ -1214,20 +1225,96 @@ function apercuConflits(duree){
 
 
 
+
+/* Découpe un collage contenant plusieurs événements. Le repère fiable est la
+   date : chaque tournoi en porte exactement une, et son nom la précède. On
+   ouvre donc un nouveau bloc dès qu'une date apparaît alors que le bloc courant
+   en contient déjà une. */
+function decouperBlocs(txt){
+  const lignes=String(txt||"").split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  const dates=[];
+  lignes.forEach((l,i)=>{if(extraireDate(l))dates.push(i)});
+  if(!dates.length)return [];
+
+  /* Le nom du tournoi précède sa date : on fait donc démarrer chaque bloc à la
+     ligne qui précède la date, et non à la date elle-même. */
+  const debuts=dates.map(i=>{
+    const p=i-1;
+    return (p>=0&&!extraireDate(lignes[p]))?p:i;
+  });
+
+  /* L'en-tête de page (nom et adresse de la boutique) précède le premier bloc :
+     il vaut pour tous, on le rattache à chacun — en fin de bloc, pour ne pas
+     perturber la détection du nom. */
+  const preambule=lignes.slice(0,debuts[0]).join("\n");
+
+  return debuts.map((d,k)=>{
+    const fin=(k+1<debuts.length)?debuts[k+1]:lignes.length;
+    const corps=lignes.slice(d,fin).join("\n");
+    return preambule?corps+"\n"+preambule:corps;
+  }).filter(b=>extraireDate(b));
+}
+
+/* Analyse un collage multi-événements et confronte chaque entrée au planning. */
+function analyserListe(txt){
+  return decouperBlocs(txt).map(b=>{
+    const r=analyserColle(b);
+    const d=Object.assign({},VIDE);
+    ["nom","date","heure","lieu","frais","participants","format","jeu","bo","url"]
+      .forEach(k=>{if(r[k]!==undefined&&r[k]!=="")d[k]=r[k]});
+    if(r.drafts)d.drafts=true;
+    const l=lieuCorrespondant(r.lieu||"",b);
+    if(l){d.lieuId=l.id;d.lieu=l.adresse;d.lieuNom=l.nom}
+    const ds=doublons(d);
+    return{ev:d,rapport:r,connu:ds.length>0,doubles:ds};
+  });
+}
+
 function importHTML(){
   let h='<div class="trajets"><div class="eyebrow" style="margin-bottom:12px">'
     +'Import depuis Melee</div>'
-  +'<div class="note" style="margin:0 0 12px">Sur la page du tournoi, sélectionne le bloc '
-    +'d\'informations (titre, date, boutique, adresse, tarif), copie-le, et colle-le ici. '
-    +'Ajoute l\'adresse de la page si tu veux garder le lien. Ton navigateur ne peut pas '
-    +'lire melee.gg tout seul — c\'est le collage qui fait le pont.</div>'
+  +'<div class="note" style="margin:0 0 12px">Ouvre le <b>Tournament Hub</b> d\'une de tes '
+    +'boutiques sur Melee, sélectionne toute la page (Ctrl+A), copie (Ctrl+C) et colle ici. '
+    +'L\'application compare la liste à ton planning et ne te montre que ce qui manque. '
+    +'Un seul tournoi collé ouvre directement le formulaire. Ton navigateur ne peut pas lire '
+    +'melee.gg tout seul — c\'est le collage qui fait le pont.</div>'
   +'<textarea id="imp" class="colle" rows="8" placeholder="Colle ici le contenu copié…">'
     +esc(importTexte||"")+'</textarea>'
   +'<div class="barre" style="margin:12px 0 0">'
     +'<button class="primaire" data-a="imp-run">Analyser</button>'
     +'<button data-a="imp-vider">Vider</button></div>';
 
-  if(importRapport){
+  if(importListe){
+    const nouveaux=importListe.filter(x=>!x.connu).length;
+    h+='<div class="estim" style="margin-top:14px">'
+      +'<b>'+importListe.length+'</b> événement'+(importListe.length>1?"s":"")+' détecté'
+      +(importListe.length>1?"s":"")+' · <b>'+nouveaux+'</b> nouveau'+(nouveaux>1?"x":"")
+      +' · '+(importListe.length-nouveaux)+' déjà dans ton planning</div>';
+
+    h+='<div style="margin-top:12px">';
+    importListe.forEach((x,i)=>{
+      const e=x.ev;
+      h+='<div class="imp-l'+(x.connu?" connu":"")+'">'
+        +(x.connu?'<span class="imp-b connu">déjà</span>'
+          :'<input type="checkbox" data-imp="'+i+'"'+(importSel[i]?" checked":"")+'>')
+        +'<div class="imp-n"><b>'+esc(e.nom||"Sans nom")+'</b>'
+        +'<br><span class="imp-d">'+esc(e.date||"date ?")+' '+esc(e.heure||"")
+        +(e.lieuNom?' · '+esc(e.lieuNom):(e.lieu?' · '+esc(e.lieu):' · lieu non reconnu'))
+        +(e.frais?' · '+esc(e.frais)+' €':'')
+        +(x.connu?' · correspond à « '+esc(x.doubles[0].ev.nom||"sans nom")+' »':'')
+        +'</span></div></div>';
+    });
+    h+='</div>';
+
+    if(nouveaux)h+='<div class="barre" style="margin:14px 0 0">'
+      +'<button class="primaire" data-a="imp-ajouter">Ajouter la sélection</button>'
+      +'<button data-a="imp-tout">Tout cocher</button>'
+      +'<button data-a="imp-rien">Tout décocher</button></div>';
+    else h+='<div class="note">Rien de nouveau : ton planning est déjà à jour '
+      +'pour cette boutique.</div>';
+  }
+
+  if(importRapport&&!importListe){
     const r=importRapport;
     h+='<div class="estim" style="margin-top:14px">';
     h+=r.trouve.length
@@ -1471,6 +1558,12 @@ function brancher(){
       sync[el.dataset.s]=el.value.trim();saveSync();render();
     });
   });
+  document.querySelectorAll("[data-imp]").forEach(el=>{
+    el.addEventListener("change",()=>{
+      const i=el.dataset.imp;
+      if(el.checked)importSel[i]=true;else delete importSel[i];
+    });
+  });
   document.querySelectorAll("[data-l]").forEach(el=>{
     el.addEventListener("input",()=>{
       lieuBrouillon=Object.assign({id:null,nom:"",adresse:""},lieuBrouillon);
@@ -1528,11 +1621,35 @@ function action(a,id){
     if(ouverts[id])delete ouverts[id];else ouverts[id]=true;
     render();
   }
-  else if(a==="imp-vider"){importTexte="";importRapport=null;render()}
+  else if(a==="imp-vider"){importTexte="";importRapport=null;importListe=null;importSel={};render()}
+  else if(a==="imp-tout"){importListe.forEach((x,i)=>{if(!x.connu)importSel[i]=true});render()}
+  else if(a==="imp-rien"){importSel={};render()}
+  else if(a==="imp-ajouter"){
+    const choisis=importListe.filter((x,i)=>importSel[i]&&!x.connu);
+    if(!choisis.length){alert("Coche au moins un événement à ajouter.");return}
+    const t=Date.now();
+    choisis.forEach((x,n)=>{
+      S.events.push(Object.assign({},x.ev,{id:"t"+(t+n),maj:t+n}));
+    });
+    importListe=null;importSel={};importTexte="";importRapport=null;importOuvert=false;
+    save();render();syncDifferee();
+    alert(choisis.length+" tournoi"+(choisis.length>1?"s ajoutés":" ajouté")
+      +" au planning. Vérifie les durées estimées : elles reposent sur un nombre "
+      +"de participants souvent absent des pages Melee.");
+  }
   else if(a==="imp-run"){
     const z=document.getElementById("imp");
     importTexte=z?z.value:"";
     if(!importTexte.trim()){alert("Colle d'abord le contenu de la page Melee.");return}
+
+    /* plusieurs événements : on bascule en mode liste et confrontation */
+    const liste=analyserListe(importTexte);
+    if(liste.length>1){
+      importListe=liste;importSel={};importRapport=null;
+      liste.forEach((x,i)=>{if(!x.connu)importSel[i]=true});
+      render();return;
+    }
+    importListe=null;
     const r=analyserColle(importTexte);
     importRapport=r;
     const d=Object.assign({},VIDE);

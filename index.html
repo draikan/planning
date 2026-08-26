@@ -101,6 +101,10 @@ button:disabled{opacity:.45;cursor:not-allowed}
   border-bottom:1px solid var(--feutre3)}
 .imp-l:last-child{border-bottom:none}
 .imp-l.connu{opacity:.5}
+.imp-l.suspect{background:rgba(226,72,61,.07);border-left:2px solid var(--conflit);
+  padding-left:9px;margin-left:-9px}
+.imp-w{display:block;margin-top:4px;color:#F0A9A3;font-size:11.5px;
+  font-family:'Instrument Sans',sans-serif}
 .imp-l input{margin-top:3px;flex:none}
 .imp-n{min-width:0;font-size:13.5px}
 .imp-d{color:var(--craie-dim);font-size:11.5px;font-family:'JetBrains Mono',monospace}
@@ -213,7 +217,7 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 /* ---------- état ---------- */
 const CLE="jcc.agenda.v1";
 const REGLAGES_DEFAUT={base:"",margeDepart:15,alerteTrajet:30,mode:"transports",
-  fournisseur:"prim",baseTC:""};
+  fournisseur:"prim",baseTC:"",jeuxSuivis:[],rayonKm:45};
 
 /* Fournisseurs d'itinéraires en transports. Tous exposent le moteur Navitia,
    donc la même requête et la même réponse : seuls l'adresse et le mode
@@ -244,7 +248,7 @@ function loadSync(){try{const r=localStorage.getItem(CLE_SYNC);
   if(r)sync=Object.assign(sync,JSON.parse(r))}catch(e){}}
 function saveSync(){try{localStorage.setItem(CLE_SYNC,JSON.stringify(sync))}catch(e){}}
 let voirPasses=false, ouverts={}, filtreJeu='', filtreLieu='';
-let importListe=null, importSel={};
+let importListe=null, importSel={}, importTout=false;
 let draft=null, lieuBrouillon=null, importTexte='', importRapport=null,
     importOuvert=false, formOuvert=false, panneau=false,
     reglagesOuvert=false, lieuxOuvert=false, occupe=false;
@@ -941,7 +945,8 @@ function lieuCorrespondant(adresse,nom){
 
 /* ---------- rendu ---------- */
 const VIDE={nom:"",jeu:JEUX[0],format:"",date:"",heure:"09:00",lieu:"",
-  lieuId:"",lieuNom:"",frais:"",
+  lieuId:"",lieuNom:"",organisateur:"",inscrits:"",statutMelee:"",fuseau:"",
+  distanceKm:null,ville:"",frais:"",
   participants:"32",bo:"bo3",cut:"top8",drafts:false,statut:"inscrit",dureeManuelle:null,id:null};
 
 function render(){
@@ -1226,6 +1231,183 @@ function apercuConflits(duree){
 
 
 
+
+/* ---------- lecture du tableau « Tous les tournois » de Melee ---------- */
+/* Melee sert un vrai tableau à colonnes séparées par des tabulations :
+   date+heure+fuseau | nom | jeu | organisateur | statut | joueurs | inscription |
+   type | frais. C'est bien plus fiable que d'analyser du texte libre : on cible
+   ces lignes et on ignore tout le reste de la page (menus, cartes, pied de page). */
+
+const JEUX_MELEE={
+  "cyberpunk tcg":"Cyberpunk","cyberpunktcg":"Cyberpunk","cyberpunk":"Cyberpunk","palworld":"Palworld","riftbound":"Riftbound",
+  "one piece":"One Piece","pokemon":"Pokémon","pokémon":"Pokémon",
+  "jce altered":"Altered","altered":"Altered","flesh and blood":"Flesh and Blood"
+};
+
+function jeuMelee(libelle){
+  const n=norm(libelle);
+  if(JEUX_MELEE[n])return JEUX_MELEE[n];
+  const direct=JEUX.find(j=>norm(j)===n);
+  if(direct)return direct;
+  const partiel=JEUX.find(j=>j!=="Autre"&&(n.indexOf(norm(j))>=0||norm(j).indexOf(n)>=0));
+  return partiel||"Autre";
+}
+
+/* « 12/09/2026 14:30 CEST » — toujours jj/mm/aaaa sur l'interface française */
+function dateHeureMelee(c){
+  const m=String(c||"").match(/(\d{1,2})\/(\d{1,2})\/(20\d{2})\s+(\d{1,2}):(\d{2})\s*([A-Z]{2,4})?/);
+  if(!m)return null;
+  return{date:m[3]+"-"+pad(+m[2])+"-"+pad(+m[1]),heure:pad(+m[4])+":"+m[5],
+         fuseau:m[6]||""};
+}
+
+function analyserTableau(txt){
+  const out=[];
+  String(txt||"").split(/\r?\n/).forEach(l=>{
+    if(l.indexOf("\t")<0)return;
+    const c=l.split("\t").map(v=>v.trim());
+    if(c.length<6)return;
+    const dh=dateHeureMelee(c[0]);
+    if(!dh)return;                       /* écarte l'en-tête et tout le décor */
+
+    const e=Object.assign({},VIDE,dh);
+    e.nom=c[1]||"Sans nom";
+    e.jeu=jeuMelee(c[2]||"");
+    e.organisateur=c[3]||"";
+    e.statutMelee=c[4]||"";
+
+    const mj=(c[5]||"").match(/(\d+)\s*(?:of|sur|\/)\s*(\d+)/i);
+    if(mj){e.participants=mj[2];e.inscrits=mj[1]}   /* la capacité, pas l'affluence */
+
+    const frais=c[7]||c[8]||"";
+    if(/gratuit|free/i.test(frais))e.frais="0";
+    else{
+      const mf=frais.match(/(\d+(?:[.,]\d{1,2})?)/);
+      if(mf)e.frais=String(Math.round(parseFloat(mf[1].replace(",","."))));
+    }
+
+    const l2=lieuCorrespondant(e.organisateur,e.organisateur);
+    if(l2){e.lieuId=l2.id;e.lieu=l2.adresse;e.lieuNom=l2.nom}
+    else e.lieuNom=e.organisateur;
+
+    out.push(e);
+  });
+  return out;
+}
+
+
+
+/* ---------- contrôle de vraisemblance des dates ---------- */
+/* Deux témoins indépendants permettent de repérer une saisie erronée par la
+   boutique : le titre du tournoi, qui porte presque toujours sa date, et le
+   fuseau affiché — CEST court de fin mars à fin octobre, CET le reste de
+   l'année. Une contradiction ne prouve rien, mais mérite un coup d'œil. */
+
+const MOIS_TITRE=Object.assign({},MOIS_FR);
+
+function dateDansTitre(titre,annee){
+  const t=String(titre||"");
+  let m;
+  /* jj/mm éventuellement suivi de l'année, comme « - 15/09/26 - » */
+  if((m=t.match(/\b(\d{1,2})[\/.](\d{1,2})(?:[\/.](\d{2,4}))?\b/))){
+    const j=+m[1], mo=+m[2];
+    if(j>=1&&j<=31&&mo>=1&&mo<=12)return{jour:j,mois:mo};
+  }
+  /* « Dimanche 13 Septembre » */
+  if((m=t.match(/\b(\d{1,2})\s+([A-Za-zÀ-ÿ]+)/))){
+    const n=MOIS_TITRE[m[2].toLowerCase()];
+    if(n)return{jour:+m[1],mois:n};
+  }
+  return null;
+}
+
+function verifierDate(e){
+  if(!e.date)return null;
+  const[a,mo,j]=e.date.split("-").map(Number);
+
+  const t=dateDansTitre(e.nom,a);
+  if(t&&(t.jour!==j||t.mois!==mo)){
+    return "le titre annonce le "+pad(t.jour)+"/"+pad(t.mois)
+      +" alors que la fiche indique le "+pad(j)+"/"+pad(mo);
+  }
+
+  const fz=(e.fuseau||"").toUpperCase();
+  if(fz==="CEST"&&(mo<4||mo>10))
+    return "fuseau CEST (heure d'été) annoncé pour un mois d'hiver";
+  if(fz==="CET"&&(mo>4&&mo<10))
+    return "fuseau CET (heure d'hiver) annoncé pour un mois d'été";
+
+  return null;
+}
+
+/* ---------- lecture des cartes « Trouver des événements » ---------- */
+/* Autre présentation, autres repères : pas de tabulations mais des cartes
+   groupées par boutique. Trois ancres régulières suffisent —
+   la ligne de date, la ligne « NN km • Ville » qui ouvre chaque groupe,
+   et la ligne « prix • N Joueurs inscrits » qui suit l'organisateur. */
+
+const RE_DATE_MELEE=/^\s*(\d{1,2})\/(\d{1,2})\/(20\d{2})\s+(\d{1,2}):(\d{2})\s*(CES?T|CET|UTC|[A-Z]{2,4})?\s*$/;
+const RE_DISTANCE=/^\s*(\d+(?:[.,]\d+)?)\s*(km|mi)\s*•\s*(.+)$/i;
+const RE_PRIX=/^\s*(Free|Gratuit|[$€£]\s?\d+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?\s*[€$])\s*•\s*(\d+)\s*(?:Joueurs?|Players?)/i;
+
+function analyserCartes(txt){
+  const L=String(txt||"").split(/\r?\n/).map(l=>l.replace(/\s+$/,""));
+  const out=[];
+  let distance=null, ville="", groupe="";
+
+  L.forEach((ligne,i)=>{
+    const md=ligne.match(RE_DISTANCE);
+    if(md){
+      distance=parseFloat(md[1].replace(",","."));
+      if(/mi/i.test(md[2]))distance=Math.round(distance*1.609);
+      ville=md[3].trim();
+      /* le nom de la boutique précède la ligne de distance */
+      groupe=(L[i-1]||"").trim();
+      return;
+    }
+
+    const m=ligne.match(RE_DATE_MELEE);
+    if(!m)return;
+
+    const e=Object.assign({},VIDE);
+    e.date=m[3]+"-"+pad(+m[2])+"-"+pad(+m[1]);
+    e.heure=pad(+m[4])+":"+m[5];
+    e.fuseau=m[6]||"";
+    e.nom=(L[i-1]||"").trim()||"Sans nom";
+    e.distanceKm=distance;
+    e.ville=ville;
+
+    /* on avance jusqu'à la ligne de prix : l'organisateur la précède */
+    for(let k=i+1;k<Math.min(i+8,L.length);k++){
+      const mp=(L[k]||"").match(RE_PRIX);
+      if(!mp)continue;
+      e.organisateur=(L[k-1]||"").trim()||groupe;
+      e.inscrits=mp[2];
+      if(/free|gratuit/i.test(mp[1]))e.frais="0";
+      else{
+        const mf=mp[1].match(/(\d+(?:[.,]\d{1,2})?)/);
+        if(mf)e.frais=String(Math.round(parseFloat(mf[1].replace(",","."))));
+      }
+      /* les étiquettes qui suivent portent le jeu */
+      for(let z=k+1;z<Math.min(k+6,L.length);z++){
+        const t=(L[z]||"").trim();
+        if(!t||RE_DATE_MELEE.test(t)||RE_DISTANCE.test(t))break;
+        const j=jeuMelee(t.replace(/tcg$/i,"").trim());
+        if(j!=="Autre"){e.jeu=j;break}
+      }
+      break;
+    }
+    if(!e.organisateur)e.organisateur=groupe;
+
+    const l2=lieuCorrespondant(e.organisateur,e.organisateur);
+    if(l2){e.lieuId=l2.id;e.lieu=l2.adresse;e.lieuNom=l2.nom}
+    else{e.lieuNom=e.organisateur;e.lieu=ville||""}
+
+    out.push(e);
+  });
+  return out;
+}
+
 /* Découpe un collage contenant plusieurs événements. Le repère fiable est la
    date : chaque tournoi en porte exactement une, et son nom la précède. On
    ouvre donc un nouveau bloc dès qu'une date apparaît alors que le bloc courant
@@ -1257,6 +1439,19 @@ function decouperBlocs(txt){
 
 /* Analyse un collage multi-événements et confronte chaque entrée au planning. */
 function analyserListe(txt){
+  /* trois présentations possibles, du plus structuré au plus libre :
+     le tableau « Tous les tournois », les cartes « Trouver des événements »,
+     puis le texte libre en dernier recours. */
+  let tab=analyserTableau(txt);
+  if(!tab.length)tab=analyserCartes(txt);
+  if(tab.length){
+    return tab.map(e=>{
+      const ds=doublons(e);
+      return{ev:e,rapport:{trouve:[],manque:[]},connu:ds.length>0,doubles:ds,
+             passe:horod(e)<Date.now(),termine:/termin/i.test(e.statutMelee||""),
+             suspect:verifierDate(e)};
+    });
+  }
   return decouperBlocs(txt).map(b=>{
     const r=analyserColle(b);
     const d=Object.assign({},VIDE);
@@ -1285,14 +1480,55 @@ function importHTML(){
     +'<button data-a="imp-vider">Vider</button></div>';
 
   if(importListe){
-    const nouveaux=importListe.filter(x=>!x.connu).length;
+    /* on écarte d'office le passé et les tournois terminés : 208 lignes d'historique
+       n'ont aucun intérêt ici, seul compte ce à quoi on peut encore s'inscrire */
+    const futurs=importListe.filter(x=>!x.passe&&!x.termine);
+    const jeuxVus=[];
+    futurs.forEach(x=>{if(x.ev.jeu&&jeuxVus.indexOf(x.ev.jeu)<0)jeuxVus.push(x.ev.jeu)});
+    const suivis=S.reglages.jeuxSuivis||[];
+    /* par défaut on ne montre que les jeux suivis : sur 20 lignes de tableau,
+       l'utilisateur n'en veut qu'une ou deux */
+    const rayon=Number(S.reglages.rayonKm)||0;
+    const dansRayon=x=>!rayon||x.ev.distanceKm==null||x.ev.distanceKm<=rayon;
+    const liste=(importTout?futurs:futurs.filter(x=>
+      (!suivis.length||suivis.indexOf(x.ev.jeu)>=0)&&dansRayon(x)));
+    const horsRayon=futurs.filter(x=>!dansRayon(x)).length;
+    const nouveaux=liste.filter(x=>!x.connu).length;
+    const ecartes=importListe.length-futurs.length;
+    const masques=futurs.length-liste.length;
     h+='<div class="estim" style="margin-top:14px">'
-      +'<b>'+importListe.length+'</b> événement'+(importListe.length>1?"s":"")+' détecté'
-      +(importListe.length>1?"s":"")+' · <b>'+nouveaux+'</b> nouveau'+(nouveaux>1?"x":"")
-      +' · '+(importListe.length-nouveaux)+' déjà dans ton planning</div>';
+      +'<b>'+futurs.length+'</b> tournoi'+(futurs.length>1?"s":"")+' à venir · <b>'
+      +nouveaux+'</b> nouveau'+(nouveaux>1?"x":"")+' · '+(liste.length-nouveaux)
+      +' déjà dans ton planning'
+      +((ecartes||masques)?'<div style="color:var(--craie-dim);font-size:12px;margin-top:4px">'
+        +(ecartes?ecartes+' ligne'+(ecartes>1?"s":"")+' d\'historique écartée'
+          +(ecartes>1?"s":"")+'. ':'')
+        +(masques?masques+' masqué'+(masques>1?"s":"")+' (jeu non suivi'
+          +(horsRayon?' ou hors rayon':'')+').':'')+'</div>':'')
+      +'</div>';
+
+    const tousJeux=jeuxVus.slice();
+    suivis.forEach(j=>{if(tousJeux.indexOf(j)<0)tousJeux.push(j)});
+    if(tousJeux.length){
+      h+='<div class="fl" style="margin-top:12px"><span class="fl-t">Jeux suivis</span>'
+        +tousJeux.map(j=>'<button class="puce'+(suivis.indexOf(j)>=0?" on":"")
+          +'" data-a="ij" data-v="'+esc(j)+'">'+esc(j)+'</button>').join("")
+        +(masques||importTout?'<button class="puce'+(importTout?" on":"")
+          +'" data-a="itout" data-v="">Tout afficher</button>':'')+'</div>';
+      if(futurs.some(x=>x.ev.distanceKm!=null)){
+        h+='<div class="fl" style="margin-top:10px"><span class="fl-t">Rayon</span>'
+          +[25,45,75,0].map(r=>'<button class="puce'+(rayon===r?" on":"")
+            +'" data-a="iray" data-v="'+r+'">'+(r?r+" km":"illimité")+'</button>').join("")
+          +'</div>';
+      }
+      if(!suivis.length)h+='<div class="note" style="margin-top:8px">Choisis les jeux que '
+        +'tu suis : ils seront seuls affichés et pré-cochés lors des prochains imports. '
+        +'Tu n\'auras plus à décocher le reste.</div>';
+    }
 
     h+='<div style="margin-top:12px">';
-    importListe.forEach((x,i)=>{
+    liste.forEach(x=>{
+      const i=importListe.indexOf(x);
       const e=x.ev;
       h+='<div class="imp-l'+(x.connu?" connu":"")+'">'
         +(x.connu?'<span class="imp-b connu">déjà</span>'
@@ -1300,8 +1536,12 @@ function importHTML(){
         +'<div class="imp-n"><b>'+esc(e.nom||"Sans nom")+'</b>'
         +'<br><span class="imp-d">'+esc(e.date||"date ?")+' '+esc(e.heure||"")
         +(e.lieuNom?' · '+esc(e.lieuNom):(e.lieu?' · '+esc(e.lieu):' · lieu non reconnu'))
-        +(e.frais?' · '+esc(e.frais)+' €':'')
+        +(e.frais==="0"?' · gratuit':(e.frais?' · '+esc(e.frais)+' €':''))
+        +(e.inscrits?' · '+esc(e.inscrits)+(e.participants?'/'+esc(e.participants):'')+' inscrits':'')
+        +(e.distanceKm!=null?' · '+esc(e.distanceKm)+' km':'')
         +(x.connu?' · correspond à « '+esc(x.doubles[0].ev.nom||"sans nom")+' »':'')
+        +(x.suspect?'<br><span class="imp-w">Date douteuse : '+esc(x.suspect)
+          +'. Vérifie sur Melee avant de t\'inscrire.</span>':'')
         +'</span></div></div>';
     });
     h+='</div>';
@@ -1310,8 +1550,8 @@ function importHTML(){
       +'<button class="primaire" data-a="imp-ajouter">Ajouter la sélection</button>'
       +'<button data-a="imp-tout">Tout cocher</button>'
       +'<button data-a="imp-rien">Tout décocher</button></div>';
-    else h+='<div class="note">Rien de nouveau : ton planning est déjà à jour '
-      +'pour cette boutique.</div>';
+    else h+='<div class="note">Rien de nouveau'+(suivis.length&&!importTout?" parmi les jeux que tu suis":"")
+      +' : ton planning est déjà à jour pour cette boutique.</div>';
   }
 
   if(importRapport&&!importListe){
@@ -1514,9 +1754,23 @@ function trajetsHTML(paires){
 function brancher(){
   document.querySelectorAll("[data-a]").forEach(b=>{
     const a=b.dataset.a;
-    if(a==="fj"||a==="fx"){
+    if(a==="fj"||a==="fx"||a==="ij"||a==="itout"||a==="iray"){
       b.addEventListener("click",()=>{
-        if(a==="fj")filtreJeu=b.dataset.v;else filtreLieu=b.dataset.v;
+        if(a==="fj")filtreJeu=b.dataset.v;
+        else if(a==="fx")filtreLieu=b.dataset.v;
+        else if(a==="itout")importTout=!importTout;
+        else if(a==="iray"){
+          S.reglages.rayonKm=Number(b.dataset.v);S.reglagesMaj=Date.now();
+          save();syncDifferee();recocher();
+        }
+        else{
+          const j=b.dataset.v, l=(S.reglages.jeuxSuivis||[]).slice();
+          const i=l.indexOf(j);
+          if(i>=0)l.splice(i,1);else l.push(j);
+          S.reglages.jeuxSuivis=l;S.reglagesMaj=Date.now();
+          save();syncDifferee();
+          recocher();
+        }
         render();
       });
       return;
@@ -1586,6 +1840,23 @@ function brancher(){
   });
 }
 
+/* Ne pré-coche que ce que l'utilisateur suit réellement. Sans jeu suivi
+   déclaré, rien n'est coché : mieux vaut cocher deux lignes que d'en décocher
+   dix-huit. */
+function recocher(){
+  importSel={};
+  if(!importListe)return;
+  const suivis=S.reglages.jeuxSuivis||[];
+  if(!suivis.length)return;
+  const rayon=Number(S.reglages.rayonKm)||0;
+  importListe.forEach((x,i)=>{
+    if(x.connu||x.passe||x.termine)return;
+    if(suivis.indexOf(x.ev.jeu)<0)return;
+    if(rayon&&x.ev.distanceKm!=null&&x.ev.distanceKm>rayon)return;
+    importSel[i]=true;
+  });
+}
+
 function action(a,id){
   if(a==="nouveau"){draft=Object.assign({},VIDE);formOuvert=true;render();window.scrollTo(0,0)}
   else if(a==="editer"){draft=Object.assign({},S.events.find(e=>e.id===id));formOuvert=true;render();window.scrollTo(0,0)}
@@ -1621,17 +1892,25 @@ function action(a,id){
     if(ouverts[id])delete ouverts[id];else ouverts[id]=true;
     render();
   }
-  else if(a==="imp-vider"){importTexte="";importRapport=null;importListe=null;importSel={};render()}
-  else if(a==="imp-tout"){importListe.forEach((x,i)=>{if(!x.connu)importSel[i]=true});render()}
+  else if(a==="imp-vider"){importTexte="";importRapport=null;importListe=null;importSel={};importTout=false;render()}
+  else if(a==="imp-tout"){
+    const suivis=S.reglages.jeuxSuivis||[];
+    importListe.forEach((x,i)=>{
+      if(x.connu||x.passe||x.termine)return;
+      if(suivis.length&&!importTout&&suivis.indexOf(x.ev.jeu)<0)return;
+      importSel[i]=true;
+    });
+    render();
+  }
   else if(a==="imp-rien"){importSel={};render()}
   else if(a==="imp-ajouter"){
-    const choisis=importListe.filter((x,i)=>importSel[i]&&!x.connu);
+    const choisis=importListe.filter((x,i)=>importSel[i]&&!x.connu&&!x.passe&&!x.termine);
     if(!choisis.length){alert("Coche au moins un événement à ajouter.");return}
     const t=Date.now();
     choisis.forEach((x,n)=>{
       S.events.push(Object.assign({},x.ev,{id:"t"+(t+n),maj:t+n}));
     });
-    importListe=null;importSel={};importTexte="";importRapport=null;importOuvert=false;
+    importListe=null;importSel={};importTout=false;importTexte="";importRapport=null;importOuvert=false;
     save();render();syncDifferee();
     alert(choisis.length+" tournoi"+(choisis.length>1?"s ajoutés":" ajouté")
       +" au planning. Vérifie les durées estimées : elles reposent sur un nombre "
@@ -1645,8 +1924,8 @@ function action(a,id){
     /* plusieurs événements : on bascule en mode liste et confrontation */
     const liste=analyserListe(importTexte);
     if(liste.length>1){
-      importListe=liste;importSel={};importRapport=null;
-      liste.forEach((x,i)=>{if(!x.connu)importSel[i]=true});
+      importListe=liste;importRapport=null;importTout=false;
+      recocher();
       render();return;
     }
     importListe=null;

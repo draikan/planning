@@ -46,6 +46,14 @@ button.discret{background:transparent;border-color:transparent;color:var(--craie
 button.discret:hover{color:var(--craie);background:var(--feutre2)}
 button:disabled{opacity:.45;cursor:not-allowed}
 .barre{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:24px}
+.nav{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:24px;padding-bottom:14px;
+  border-bottom:1px solid var(--feutre3)}
+.onglet{font-size:13px;font-weight:500;padding:7px 13px;border-radius:2px;
+  border:1px solid transparent;background:transparent;color:var(--craie-dim)}
+.onglet:hover{background:var(--feutre2);color:var(--craie)}
+.onglet.on{background:var(--feutre2);border-color:var(--feutre3);color:var(--craie);
+  font-weight:600;box-shadow:inset 0 -2px 0 var(--laiton)}
+@media (max-width:480px){.onglet{font-size:12.5px;padding:7px 10px}}
 
 .jour{margin-bottom:30px}
 .jour-t{font-family:'Bricolage Grotesque',sans-serif;font-weight:600;font-size:13px;
@@ -269,9 +277,9 @@ function loadSync(){try{const r=localStorage.getItem(CLE_SYNC);
 function saveSync(){try{localStorage.setItem(CLE_SYNC,JSON.stringify(sync))}catch(e){}}
 let voirPasses=false, ouverts={}, filtreJeu='', filtreLieu='';
 let importListe=null, importSel={}, importTout=false;
+let vue="";   /* "" = planning, sinon : import | lieux | trajets | reglages */
 let draft=null, lieuBrouillon=null, importTexte='', importRapport=null,
-    importOuvert=false, formOuvert=false, panneau=false,
-    reglagesOuvert=false, lieuxOuvert=false, occupe=false;
+    formOuvert=false, occupe=false;
 
 function load(){try{const r=localStorage.getItem(CLE);if(r){
   const d=JSON.parse(r);
@@ -1150,25 +1158,47 @@ function render(){
   const nbPasses=joursPasses.reduce((n,j)=>n+parJour[j].length,0);
 
   let h="";
-  h+='<div class="eyebrow">Créneaux sanctuarisés</div>';
-  h+='<h1>Mes tournois,<br><em>sans doublon.</em></h1>';
+  const TITRES={import:["Import","Depuis <em>Melee</em>."],
+    lieux:["Boutiques","Mes <em>lieux</em>."],
+    trajets:["Déplacements","Mes <em>trajets</em>."],
+    reglages:["Configuration","Mes <em>réglages</em>."]};
+
+  if(vue){
+    h+='<div class="eyebrow">'+TITRES[vue][0]+'</div>';
+    h+='<h1>'+TITRES[vue][1]+'</h1>';
+  }else{
+    h+='<div class="eyebrow">Créneaux sanctuarisés</div>';
+    h+='<h1>Mes tournois,<br><em>sans doublon.</em></h1>';
+  }
+
+  h+='<nav class="nav">'
+    +[["","Planning"],["import","Import"],
+      ["lieux","Lieux"+((S.lieux||[]).length?" ("+S.lieux.length+")":"")],
+      ["trajets","Trajets"+(paires.length?" ("+paires.length+")":"")],
+      ["reglages","Réglages"]]
+      .map(o=>'<button class="onglet'+(vue===o[0]?" on":"")+'" data-a="vue" data-v="'
+        +o[0]+'">'+o[1]+'</button>').join("")+'</nav>';
+
+  /* Une vue secondaire remplace le planning au lieu de s'empiler dessous. */
+  if(vue){
+    h+={import:importHTML,lieux:lieuxHTML,
+        trajets:function(){return S.reglages.mode==="transports"
+          ?trajetsTCHTML():trajetsHTML(paires)},
+        reglages:reglagesHTML}[vue]();
+    document.getElementById("app").innerHTML=h;
+    brancher();
+    return;
+  }
+
   h+='<div class="stats">'
     +'<div class="stat"><div class="stat-v">'+aVenir.length+'</div><div class="stat-l">à venir</div></div>'
     +'<div class="stat'+(nbC?" alerte":"")+'"><div class="stat-v">'+nbC+'</div><div class="stat-l">en conflit</div></div>'
     +'<div class="stat"><div class="stat-v">'+frais+' €</div><div class="stat-l">frais engagés</div></div>'
     +'</div>';
 
-  h+='<div class="barre"><button class="primaire" data-a="nouveau">Ajouter un tournoi</button>'
-    +'<button data-a="panneau">Trajets'+(paires.length?" ("+paires.length+")":"")+'</button>'
-    +'<button data-a="import-melee">Depuis Melee</button>'
-    +'<button data-a="lieux">Lieux'+((S.lieux||[]).length?" ("+S.lieux.length+")":"")+'</button>'
-    +'<button data-a="reglages">Réglages</button></div>';
+  h+='<div class="barre"><button class="primaire" data-a="nouveau">Ajouter un tournoi</button></div>';
 
   if(formOuvert)h+=formHTML();
-  if(panneau)h+=(S.reglages.mode==="transports"?trajetsTCHTML():trajetsHTML(paires));
-  if(importOuvert)h+=importHTML();
-  if(lieuxOuvert)h+=lieuxHTML();
-  if(reglagesOuvert)h+=reglagesHTML();
 
   h+='<div class="legende">'
     +'<span><i class="pastille" style="background:var(--laiton)"></i> créneau bloqué</span>'
@@ -2001,6 +2031,15 @@ function trajetsHTML(paires){
 function brancher(){
   document.querySelectorAll("[data-a]").forEach(b=>{
     const a=b.dataset.a;
+    if(a==="vue"){
+      b.addEventListener("click",()=>{
+        vue=b.dataset.v;
+        if(vue!=="lieux")lieuBrouillon=null;
+        window.scrollTo(0,0);
+        render();
+      });
+      return;
+    }
     if(a==="excl-add"){
       b.addEventListener("click",()=>{
         const x=importListe&&importListe[b.dataset.i];
@@ -2131,8 +2170,8 @@ function recocher(){
 }
 
 function action(a,id){
-  if(a==="nouveau"){draft=Object.assign({},VIDE);formOuvert=true;render();window.scrollTo(0,0)}
-  else if(a==="editer"){draft=Object.assign({},S.events.find(e=>e.id===id));formOuvert=true;render();window.scrollTo(0,0)}
+  if(a==="nouveau"){vue="";draft=Object.assign({},VIDE);formOuvert=true;render();window.scrollTo(0,0)}
+  else if(a==="editer"){vue="";draft=Object.assign({},S.events.find(e=>e.id===id));formOuvert=true;render();window.scrollTo(0,0)}
   else if(a==="annuler"){formOuvert=false;draft=null;render()}
   else if(a==="valider"){
     const ds=doublons(draft);
@@ -2156,10 +2195,10 @@ function action(a,id){
       save();render();syncDifferee();
     }
   }
-  else if(a==="panneau"){panneau=!panneau;render()}
-  else if(a==="reglages"){reglagesOuvert=!reglagesOuvert;render()}
-  else if(a==="lieux"){lieuxOuvert=!lieuxOuvert;if(!lieuxOuvert)lieuBrouillon=null;render()}
-  else if(a==="import-melee"){importOuvert=!importOuvert;render()}
+  else if(a==="panneau"){vue="trajets";render()}
+  else if(a==="reglages"){vue="reglages";render()}
+  else if(a==="lieux"){vue="lieux";render()}
+  else if(a==="import-melee"){vue="import";render()}
   else if(a==="passes"){voirPasses=!voirPasses;render()}
   else if(a==="plier"){
     if(ouverts[id])delete ouverts[id];else ouverts[id]=true;
@@ -2189,7 +2228,7 @@ function action(a,id){
       /* un tournoi repéré sur Melee n'est pas un tournoi auquel on est inscrit */
       S.events.push(Object.assign({},x.ev,{id:"t"+(t+n),maj:t+n,statut:"envisage"}));
     });
-    importListe=null;importSel={};importTout=false;importTexte="";importRapport=null;importOuvert=false;
+    importListe=null;importSel={};importTout=false;importTexte="";importRapport=null;vue="";
     save();render();syncDifferee();
     alert(choisis.length+" tournoi"+(choisis.length>1?"s ajoutés":" ajouté")
       +" au planning. Vérifie les durées : faute de capacité annoncée par Melee, "
@@ -2220,7 +2259,7 @@ function action(a,id){
     const ds=doublons(d);
     if(ds.length)r.avertissement=(r.avertissement?r.avertissement+" ":"")
       +"Attention : ce tournoi semble déjà enregistré ("+texteDoublons(ds)+").";
-    draft=d;formOuvert=true;importOuvert=false;
+    draft=d;formOuvert=true;vue="";
     render();window.scrollTo(0,0);
   }
   else if(a==="lieu-mod"){lieuBrouillon=Object.assign({},lieuParId(id));render()}

@@ -65,7 +65,9 @@ button:disabled{opacity:.45;cursor:not-allowed}
 
 .carte{display:flex;background:var(--feutre2);border:1px solid var(--feutre3);
   border-radius:2px;margin-bottom:10px}
-.rail{width:4px;flex:none;background:var(--laiton)}
+.rail{width:4px;flex:none;background:var(--st-inscrit)}
+.rail.envisage{background:repeating-linear-gradient(to bottom,
+  var(--st-envisage) 0 6px,transparent 6px 11px)}
 .carte.conflit{border-color:var(--conflit)}
 .carte.conflit .rail{background:var(--conflit)}
 .corps{padding:13px 15px;flex:1;min-width:0}
@@ -78,9 +80,11 @@ button:disabled{opacity:.45;cursor:not-allowed}
   border:1px solid var(--feutre3);background:transparent;color:var(--craie-dim);
   line-height:1.3;white-space:nowrap}
 .sp:hover{background:var(--feutre3);color:var(--craie)}
-.sp.on{background:var(--craie-dim);border-color:var(--craie-dim);color:var(--surAccent)}
-.sp[data-v="inscrit"].on{background:var(--laiton);border-color:var(--laiton)}
-.sp[data-v="attente"].on{background:var(--trajet);border-color:var(--trajet)}
+.sp.on{color:var(--surAccent)}
+.sp[data-v="inscrit"].on{background:var(--st-inscrit);border-color:var(--st-inscrit)}
+.sp[data-v="attente"].on{background:var(--st-attente);border-color:var(--st-attente)}
+.sp[data-v="envisage"].on{background:transparent;color:var(--st-envisage);
+  border:1px dashed var(--st-envisage);font-weight:600}
 @media (max-width:480px){.stt{margin-left:0;width:100%;margin-top:6px}}
 .pcfl{font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.08em;
   text-transform:uppercase;background:var(--conflit);color:#fff;padding:2px 6px;
@@ -189,9 +193,9 @@ textarea.colle{width:100%;background:var(--feutre);border:1px solid var(--feutre
 /* ---------- référentiel ---------- */
 const JEUX=["Palworld","Pokémon","Cyberpunk","One Piece","Riftbound","Altered","Flesh and Blood","Autre"];
 const STATUTS={
-  inscrit:{label:"Inscrit",court:"Inscrit",c:"var(--laiton)"},
-  attente:{label:"Liste d'attente",court:"Attente",c:"var(--trajet)"},
-  envisage:{label:"Envisagé",court:"Envisagé",c:"var(--craie-dim)"}};
+  inscrit:{label:"Inscrit",court:"Inscrit",c:"var(--st-inscrit)"},
+  attente:{label:"Liste d'attente",court:"Attente",c:"var(--st-attente)"},
+  envisage:{label:"Envisagé",court:"Envisagé",c:"var(--st-envisage)"}};
 /* du plus incertain au plus engageant : l'ordre de lecture suit la progression */
 const ORDRE_STATUTS=["envisage","attente","inscrit"];
 const CUTS={aucun:0,top4:2,top8:3,top16:4};
@@ -983,27 +987,35 @@ const THEMES={
   feutre:{nom:"Feutre",vars:{
     feutre:"#14241D",feutre2:"#1B3127",feutre3:"#264534",craie:"#EFE9DA",
     "craie-dim":"#93A697",laiton:"#C9A227",laiton2:"#E7CB6B",conflit:"#E2483D",
-    trajet:"#7FA6B8",surAccent:"#14241D",alerteTexte:"#F0A9A3"}},
+    trajet:"#C08FD8",surAccent:"#14241D",alerteTexte:"#F0A9A3",
+    stInscrit:"#7FB3E8",stAttente:"#E8A33D",stEnvisage:"#93A697"}},
 
   encre:{nom:"Encre",vars:{
     feutre:"#111419",feutre2:"#181C24",feutre3:"#272D39",craie:"#E7EBF2",
     "craie-dim":"#8C95A5",laiton:"#7FB0FF",laiton2:"#A8CBFF",conflit:"#F0605A",
-    trajet:"#8DA0B8",surAccent:"#0E1116",alerteTexte:"#F5A9A5"}},
+    trajet:"#BC8FE0",surAccent:"#0E1116",alerteTexte:"#F5A9A5",
+    stInscrit:"#7FB0FF",stAttente:"#F0A93B",stEnvisage:"#8C95A5"}},
 
   ardoise:{nom:"Ardoise",vars:{
     feutre:"#191919",feutre2:"#222222",feutre3:"#333333",craie:"#ECECEC",
     "craie-dim":"#9A9A9A",laiton:"#D6A44C",laiton2:"#EFC97A",conflit:"#E2483D",
-    trajet:"#93A6B0",surAccent:"#161616",alerteTexte:"#F0A9A3"}},
+    trajet:"#B48FD4",surAccent:"#161616",alerteTexte:"#F0A9A3",
+    stInscrit:"#78B0E6",stAttente:"#EE8B2B",stEnvisage:"#9A9A9A"}},
 
   prune:{nom:"Prune",vars:{
     feutre:"#171320",feutre2:"#211B2E",feutre3:"#332A45",craie:"#EDE7F5",
     "craie-dim":"#9E93B0",laiton:"#C9A0FF",laiton2:"#DCC1FF",conflit:"#EF5F70",
-    trajet:"#8AA0C8",surAccent:"#150F1E",alerteTexte:"#F5AAB3"}},
+    trajet:"#6FC2B8",surAccent:"#150F1E",alerteTexte:"#F5AAB3",
+    stInscrit:"#8FB8FF",stAttente:"#F2B03C",stEnvisage:"#9E93B0"}},
 
+  /* Sur fond clair, l'accent doré occupait la même zone chromatique que le
+     statut « attente » et que le rouge d'alerte. Il est déplacé vers un vert
+     profond, et le trajet vers un violet : chaque rôle garde ainsi sa teinte. */
   papier:{nom:"Papier",vars:{
     feutre:"#F6F4EE",feutre2:"#FFFFFF",feutre3:"#D3CCBB",craie:"#1F2A25",
-    "craie-dim":"#5A6961",laiton:"#77590C",laiton2:"#5C4408",conflit:"#A82A1E",
-    trajet:"#2F5C72",surAccent:"#FFFFFF",alerteTexte:"#7A241A"}}
+    "craie-dim":"#5A6961",laiton:"#1F5F52",laiton2:"#164A40",conflit:"#A82A1E",
+    trajet:"#7A4FA0",surAccent:"#FFFFFF",alerteTexte:"#7A241A",
+    stInscrit:"#1B5E96",stAttente:"#9C6206",stEnvisage:"#5A6961"}}
 };
 
 function appliquerTheme(){
@@ -1020,6 +1032,11 @@ function appliquerTheme(){
   r.setProperty("--trajet",t.vars.trajet);
   r.setProperty("--surAccent",t.vars.surAccent);
   r.setProperty("--alerteTexte",t.vars.alerteTexte);
+  /* les statuts ont leurs propres teintes : les rattacher aux accents rendait
+     « attente » et « inscrit » trop voisins sur certaines palettes */
+  r.setProperty("--st-inscrit",t.vars.stInscrit);
+  r.setProperty("--st-attente",t.vars.stAttente);
+  r.setProperty("--st-envisage",t.vars.stEnvisage);
   /* la barre système du téléphone suit la couleur de fond */
   const m=document.querySelector('meta[name="theme-color"]');
   if(m)m.setAttribute("content",t.vars.feutre);
@@ -1134,8 +1151,13 @@ function jourHTML(date,items,conflits){
   for(let hh=Math.ceil(bmin/60);hh*60<=bmax;hh+=2)
     h+='<div class="heure" style="left:'+pct(hh*60)+'%"><span>'+pad(hh)+'h</span></div>';
   items.forEach((x,i)=>{
-    const c=conflits.has(x.ev.id)?"conflit":(x.ev.statut==="envisage"?"envisage":"");
-    h+='<div class="seg '+c+'" style="left:'+pct(mins[i])+'%;width:'+Math.max(1.5,(x.duree/span)*100)
+    const enC=conflits.has(x.ev.id);
+    const c=enC?"conflit":(x.ev.statut==="envisage"?"envisage":"");
+    /* le segment porte la couleur du statut : sans cela il reprenait l'accent
+       général, entrant en concurrence visuelle avec le code des statuts */
+    const teinte=(enC||x.ev.statut==="envisage")?""
+      :"background:"+((STATUTS[x.ev.statut]||{}).c||"var(--st-inscrit)")+";";
+    h+='<div class="seg '+c+'" style="'+teinte+'left:'+pct(mins[i])+'%;width:'+Math.max(1.5,(x.duree/span)*100)
       +'%" title="'+esc(nomComplet(x.ev))+' — '+hhmm(mins[i])+' à '+hhmm(fins[i])+'">'
       +esc(nomComplet(x.ev))+'</div>';
   });
@@ -1199,8 +1221,10 @@ function itineraireHTML(t){
 
 function carteHTML(x,d,f,cs,traj){
   const e=x.ev, k=!!cs, ouvert=!!ouverts[e.id];
-  let h='<div class="carte'+(k?" conflit":"")+'"><div class="rail"'
-    +(k?"":' style="background:'+(STATUTS[e.statut]||{}).c+'"')+'></div><div class="corps">';
+  let h='<div class="carte'+(k?" conflit":"")+'">'
+    +'<div class="rail'+(!k&&e.statut==="envisage"?" envisage":"")+'"'
+    +(k?"":' style="background:'+(e.statut==="envisage"?"":(STATUTS[e.statut]||{}).c)+'"')
+    +'></div><div class="corps">';
 
   /* en-tête toujours visible, et cliquable pour déplier le détail */
   h+='<div class="l1 tete'+(ouvert?" ouvert":"")+'" data-a="plier" data-id="'+e.id+'" '

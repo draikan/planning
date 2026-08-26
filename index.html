@@ -872,20 +872,38 @@ function extraireDate(t){
 
 function extraireHeure(t){
   let m;
-  /* AM/PM d'abord : sinon « 1:00 PM » serait lu comme 01:00 par le motif 24 h */
+  /* 1. L'heure accolée à une date est le champ officiel : elle prime sur toute
+        heure mentionnée dans un titre. */
+  if((m=t.match(/\b\d{1,2}[\/.]\d{1,2}[\/.]20\d{2}\s+(\d{1,2}):(\d{2})\b/)))
+    return pad(Math.min(23,+m[1]))+":"+m[2];
+
+  /* 2. AM/PM avant le format 24 h, sinon « 1:00 PM » serait lu 01:00. */
   if((m=t.match(/\b(\d{1,2})(?::(\d{2}))?\s*([APap])\.?\s?[Mm]\.?\b/))){
     let h=+m[1]%12;
     if(/[Pp]/.test(m[3]))h+=12;
     return pad(h)+":"+pad(m[2]?+m[2]:0);
   }
-  if((m=t.match(/\b(\d{1,2})\s*[:hH]\s*(\d{2})\b/)))
+
+  /* 3. hh:mm */
+  if((m=t.match(/\b(\d{1,2}):(\d{2})\b/)))
     return pad(Math.min(23,+m[1]))+":"+pad(Math.min(59,+m[2]));
+
+  /* 4. Notation française. Le « h » doit être collé aux minutes (10h30) ou
+        entouré d'espaces des deux côtés (10 h 30). Sans cette rigueur,
+        « à 10h 12/09 » se lisait 10:12 — les minutes venaient du quantième. */
+  if((m=t.match(/\b(\d{1,2})h([0-5]\d)\b/))||(m=t.match(/\b(\d{1,2})\s+h\s+([0-5]\d)\b/)))
+    return pad(Math.min(23,+m[1]))+":"+m[2];
+
+  /* 5. Heure ronde : « à 10h », sans minutes à sa suite. */
+  if((m=t.match(/\b(\d{1,2})\s?h\b(?!\s*[0-5]\d)/)))
+    return pad(Math.min(23,+m[1]))+":00";
+
   return null;
 }
 
 function analyserColle(txt){
   extraireDate.ambigu=false;
-  const brut=String(txt||"");
+  const brut=deplierLiens(txt).map(x=>x.texte).join("\n");
   const lignes=brut.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
   const r={trouve:[],manque:[]};
 
@@ -1263,7 +1281,8 @@ function dateHeureMelee(c){
 
 function analyserTableau(txt){
   const out=[];
-  String(txt||"").split(/\r?\n/).forEach(l=>{
+  deplierLiens(txt).forEach(o=>{
+    const l=o.texte;
     if(l.indexOf("\t")<0)return;
     const c=l.split("\t").map(v=>v.trim());
     if(c.length<6)return;
@@ -1286,6 +1305,8 @@ function analyserTableau(txt){
       if(mf)e.frais=String(Math.round(parseFloat(mf[1].replace(",","."))));
     }
 
+    if(o.url)e.url=o.url;
+
     const l2=lieuCorrespondant(e.organisateur,e.organisateur);
     if(l2){e.lieuId=l2.id;e.lieu=l2.adresse;e.lieuNom=l2.nom}
     else e.lieuNom=e.organisateur;
@@ -1296,6 +1317,23 @@ function analyserTableau(txt){
 }
 
 
+
+/* Certains collages arrivent avec les liens au format [texte](url) selon le
+   navigateur ou l'outil employé. On rend le texte à sa forme nue avant toute
+   analyse — et on en profite pour récupérer l'adresse du tournoi. */
+const RE_MD=/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g;
+
+function deplierLiens(txt){
+  const lignes=String(txt||"").split(/\r?\n/);
+  return lignes.map(l=>{
+    let url="";
+    const nu=l.replace(RE_MD,(_,texte,adresse)=>{
+      if(!url&&/\/Tournament\/View\//i.test(adresse))url=adresse;
+      return texte;
+    });
+    return{texte:nu,url:url};
+  });
+}
 
 /* ---------- contrôle de vraisemblance des dates ---------- */
 /* Deux témoins indépendants permettent de repérer une saisie erronée par la
@@ -1351,7 +1389,9 @@ const RE_DISTANCE=/^\s*(\d+(?:[.,]\d+)?)\s*(km|mi)\s*•\s*(.+)$/i;
 const RE_PRIX=/^\s*(Free|Gratuit|[$€£]\s?\d+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?\s*[€$])\s*•\s*(\d+)\s*(?:Joueurs?|Players?)/i;
 
 function analyserCartes(txt){
-  const L=String(txt||"").split(/\r?\n/).map(l=>l.replace(/\s+$/,""));
+  const brut=deplierLiens(txt);
+  const L=brut.map(x=>x.texte.replace(/\s+$/,""));
+  const U=brut.map(x=>x.url);
   const out=[];
   let distance=null, ville="", groupe="";
 
@@ -1373,7 +1413,17 @@ function analyserCartes(txt){
     e.date=m[3]+"-"+pad(+m[2])+"-"+pad(+m[1]);
     e.heure=pad(+m[4])+":"+m[5];
     e.fuseau=m[6]||"";
-    e.nom=(L[i-1]||"").trim()||"Sans nom";
+    /* Le titre suit la date dans les deux présentations rencontrées : répété
+       après elle en texte brut, placé après elle seulement quand les liens sont
+       conservés. On privilégie donc la ligne suivante, et on ne retombe sur la
+       précédente que si elle n'est pas exploitable. */
+    const utilisable=v=>{
+      const x=(v||"").trim();
+      return x&&x.length<160&&!RE_DATE_MELEE.test(x)&&!RE_DISTANCE.test(x)
+        &&!RE_PRIX.test(x)&&!/^(voir la boutique|view (the )?store|tabletop)$/i.test(x);
+    };
+    e.nom=(utilisable(L[i+1])?L[i+1]:(utilisable(L[i-1])?L[i-1]:"Sans nom")).trim();
+    e.url=U[i]||U[i+1]||U[i-1]||"";
     e.distanceKm=distance;
     e.ville=ville;
 
@@ -1413,7 +1463,7 @@ function analyserCartes(txt){
    ouvre donc un nouveau bloc dès qu'une date apparaît alors que le bloc courant
    en contient déjà une. */
 function decouperBlocs(txt){
-  const lignes=String(txt||"").split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  const lignes=deplierLiens(txt).map(x=>x.texte.trim()).filter(Boolean);
   const dates=[];
   lignes.forEach((l,i)=>{if(extraireDate(l))dates.push(i)});
   if(!dates.length)return [];

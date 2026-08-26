@@ -40,7 +40,7 @@ button{font-family:'Instrument Sans',sans-serif;font-size:14px;font-weight:600;
   border-radius:2px;cursor:pointer;padding:11px 16px;border:1px solid var(--feutre3);
   background:var(--feutre2);color:var(--craie);transition:background .15s}
 button:hover{background:var(--feutre3)}
-button.primaire{background:var(--laiton);color:#14241D;border-color:var(--laiton)}
+button.primaire{background:var(--laiton);color:var(--surAccent);border-color:var(--laiton)}
 button.primaire:hover{background:var(--laiton-clair)}
 button.discret{background:transparent;border-color:transparent;color:var(--craie-dim);padding:7px 9px}
 button.discret:hover{color:var(--craie);background:var(--feutre2)}
@@ -57,7 +57,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
   font-size:9px;color:var(--craie-dim)}
 .seg{position:absolute;top:7px;height:20px;border-radius:1px;background:var(--laiton);
   display:flex;align-items:center;padding:0 6px;font-family:'JetBrains Mono',monospace;
-  font-size:10px;color:#14241D;font-weight:600;overflow:hidden;white-space:nowrap}
+  font-size:10px;color:var(--surAccent);font-weight:600;overflow:hidden;white-space:nowrap}
 .seg.conflit{background:var(--conflit);color:#fff}
 .seg.envisage{background:transparent;border:1px dashed var(--craie-dim);color:var(--craie-dim)}
 .seg-trajet{position:absolute;top:13px;height:8px;
@@ -73,6 +73,15 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .tete{cursor:pointer;user-select:none;margin:-3px -4px;padding:3px 4px;border-radius:2px}
 .tete:hover{background:var(--feutre3)}
 .chev{color:var(--craie-dim);font-size:11px;line-height:1.6;flex:none}
+.stt{display:inline-flex;gap:3px;margin-left:auto;align-self:center;flex:none}
+.sp{font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:999px;
+  border:1px solid var(--feutre3);background:transparent;color:var(--craie-dim);
+  line-height:1.3;white-space:nowrap}
+.sp:hover{background:var(--feutre3);color:var(--craie)}
+.sp.on{background:var(--craie-dim);border-color:var(--craie-dim);color:var(--surAccent)}
+.sp[data-v="inscrit"].on{background:var(--laiton);border-color:var(--laiton)}
+.sp[data-v="attente"].on{background:var(--trajet);border-color:var(--trajet)}
+@media (max-width:480px){.stt{margin-left:0;width:100%;margin-top:6px}}
 .pcfl{font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.08em;
   text-transform:uppercase;background:var(--conflit);color:#fff;padding:2px 6px;
   border-radius:2px;align-self:center}
@@ -84,7 +93,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .puce{font-size:12.5px;font-weight:500;padding:5px 11px;border-radius:999px;
   border:1px solid var(--feutre3);background:transparent;color:var(--craie-dim)}
 .puce:hover{background:var(--feutre2);color:var(--craie)}
-.puce.on{background:var(--laiton);border-color:var(--laiton);color:#14241D;font-weight:600}
+.puce.on{background:var(--laiton);border-color:var(--laiton);color:var(--surAccent);font-weight:600}
 .creneau{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:15px;color:var(--laiton-clair)}
 .carte.conflit .creneau{color:var(--conflit)}
 .nom{font-family:'Bricolage Grotesque',sans-serif;font-weight:600;font-size:17px}
@@ -95,7 +104,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
   margin-top:5px;display:flex;gap:6px;flex-wrap:wrap}
 .meta i{font-style:normal;color:var(--feutre3)}
 .alerte{margin-top:9px;padding:7px 10px;background:rgba(226,72,61,.12);
-  border-left:2px solid var(--conflit);font-size:12.5px;color:#F0A9A3}
+  border-left:2px solid var(--conflit);font-size:12.5px;color:var(--alerteTexte)}
 .actions{display:flex;gap:4px;margin-top:8px}
 .imp-l{display:flex;align-items:flex-start;gap:10px;padding:9px 0;
   border-bottom:1px solid var(--feutre3)}
@@ -103,7 +112,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .imp-l.connu{opacity:.5}
 .imp-l.suspect{background:rgba(226,72,61,.07);border-left:2px solid var(--conflit);
   padding-left:9px;margin-left:-9px}
-.imp-w{display:block;margin-top:4px;color:#F0A9A3;font-size:11.5px;
+.imp-w{display:block;margin-top:4px;color:var(--alerteTexte);font-size:11.5px;
   font-family:'Instrument Sans',sans-serif}
 .imp-l input{margin-top:3px;flex:none}
 .imp-n{min-width:0;font-size:13.5px}
@@ -123,7 +132,7 @@ textarea.colle{width:100%;background:var(--feutre);border:1px solid var(--feutre
   text-transform:uppercase;color:var(--craie-dim);margin-bottom:1px}
 .et{display:flex;align-items:flex-start;gap:9px;font-size:12.5px;line-height:1.35}
 .badge{font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;
-  padding:3px 7px;border-radius:2px;background:var(--laiton);color:#14241D;
+  padding:3px 7px;border-radius:2px;background:var(--laiton);color:var(--surAccent);
   flex:none;min-width:30px;text-align:center;margin-top:1px}
 .et.marche .badge{background:transparent;border:1px dashed var(--craie-dim);
   color:var(--craie-dim);font-weight:400}
@@ -179,7 +188,12 @@ textarea.colle{width:100%;background:var(--feutre);border:1px solid var(--feutre
 
 /* ---------- référentiel ---------- */
 const JEUX=["Palworld","Pokémon","Cyberpunk","One Piece","Riftbound","Altered","Flesh and Blood","Autre"];
-const STATUTS={inscrit:{label:"Inscrit",c:"var(--laiton)"},attente:{label:"Liste d'attente",c:"var(--trajet)"},envisage:{label:"Envisagé",c:"var(--craie-dim)"}};
+const STATUTS={
+  inscrit:{label:"Inscrit",court:"Inscrit",c:"var(--laiton)"},
+  attente:{label:"Liste d'attente",court:"Attente",c:"var(--trajet)"},
+  envisage:{label:"Envisagé",court:"Envisagé",c:"var(--craie-dim)"}};
+/* du plus incertain au plus engageant : l'ordre de lecture suit la progression */
+const ORDRE_STATUTS=["envisage","attente","inscrit"];
 const CUTS={aucun:0,top4:2,top8:3,top16:4};
 const JOURS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
 const MOIS=["janv.","févr.","mars","avril","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
@@ -217,7 +231,7 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 /* ---------- état ---------- */
 const CLE="jcc.agenda.v1";
 const REGLAGES_DEFAUT={base:"",margeDepart:15,alerteTrajet:30,mode:"transports",
-  fournisseur:"prim",baseTC:"",jeuxSuivis:[],rayonKm:45};
+  fournisseur:"prim",baseTC:"",jeuxSuivis:[],rayonKm:45,theme:"feutre"};
 
 /* Fournisseurs d'itinéraires en transports. Tous exposent le moteur Navitia,
    donc la même requête et la même réponse : seuls l'adresse et le mode
@@ -816,7 +830,7 @@ async function synchroniser(silencieux){
     if(sync.gistId)fusionner(await gistLire());
     await gistEcrire();
     sync.dernier=Date.now();saveSync();save();
-    syncEtat=null;render();
+    syncEtat=null;appliquerTheme();render();
   }catch(e){
     syncEtat="erreur:"+e.message;render();
     if(!silencieux)alert("Synchronisation impossible.\n\n"+e.message);
@@ -961,11 +975,61 @@ function lieuCorrespondant(adresse,nom){
   })||null;
 }
 
+
+/* ---------- palettes ---------- */
+/* Toute l'interface repose sur des variables CSS : changer de thème revient à
+   les réécrire sur la racine du document, sans recharger ni redessiner. */
+const THEMES={
+  feutre:{nom:"Feutre",vars:{
+    feutre:"#14241D",feutre2:"#1B3127",feutre3:"#264534",craie:"#EFE9DA",
+    "craie-dim":"#93A697",laiton:"#C9A227",laiton2:"#E7CB6B",conflit:"#E2483D",
+    trajet:"#7FA6B8",surAccent:"#14241D",alerteTexte:"#F0A9A3"}},
+
+  encre:{nom:"Encre",vars:{
+    feutre:"#111419",feutre2:"#181C24",feutre3:"#272D39",craie:"#E7EBF2",
+    "craie-dim":"#8C95A5",laiton:"#7FB0FF",laiton2:"#A8CBFF",conflit:"#F0605A",
+    trajet:"#8DA0B8",surAccent:"#0E1116",alerteTexte:"#F5A9A5"}},
+
+  ardoise:{nom:"Ardoise",vars:{
+    feutre:"#191919",feutre2:"#222222",feutre3:"#333333",craie:"#ECECEC",
+    "craie-dim":"#9A9A9A",laiton:"#D6A44C",laiton2:"#EFC97A",conflit:"#E2483D",
+    trajet:"#93A6B0",surAccent:"#161616",alerteTexte:"#F0A9A3"}},
+
+  prune:{nom:"Prune",vars:{
+    feutre:"#171320",feutre2:"#211B2E",feutre3:"#332A45",craie:"#EDE7F5",
+    "craie-dim":"#9E93B0",laiton:"#C9A0FF",laiton2:"#DCC1FF",conflit:"#EF5F70",
+    trajet:"#8AA0C8",surAccent:"#150F1E",alerteTexte:"#F5AAB3"}},
+
+  papier:{nom:"Papier",vars:{
+    feutre:"#F6F4EE",feutre2:"#FFFFFF",feutre3:"#D3CCBB",craie:"#1F2A25",
+    "craie-dim":"#5A6961",laiton:"#77590C",laiton2:"#5C4408",conflit:"#A82A1E",
+    trajet:"#2F5C72",surAccent:"#FFFFFF",alerteTexte:"#7A241A"}}
+};
+
+function appliquerTheme(){
+  const t=THEMES[(S.reglages||{}).theme]||THEMES.feutre;
+  const r=document.documentElement.style;
+  r.setProperty("--feutre",t.vars.feutre);
+  r.setProperty("--feutre2",t.vars.feutre2);
+  r.setProperty("--feutre3",t.vars.feutre3);
+  r.setProperty("--craie",t.vars.craie);
+  r.setProperty("--craie-dim",t.vars["craie-dim"]);
+  r.setProperty("--laiton",t.vars.laiton);
+  r.setProperty("--laiton-clair",t.vars.laiton2);
+  r.setProperty("--conflit",t.vars.conflit);
+  r.setProperty("--trajet",t.vars.trajet);
+  r.setProperty("--surAccent",t.vars.surAccent);
+  r.setProperty("--alerteTexte",t.vars.alerteTexte);
+  /* la barre système du téléphone suit la couleur de fond */
+  const m=document.querySelector('meta[name="theme-color"]');
+  if(m)m.setAttribute("content",t.vars.feutre);
+}
+
 /* ---------- rendu ---------- */
 const VIDE={nom:"",jeu:JEUX[0],format:"",date:"",heure:"09:00",lieu:"",
   lieuId:"",lieuNom:"",organisateur:"",inscrits:"",statutMelee:"",fuseau:"",
   distanceKm:null,ville:"",frais:"",
-  participants:"32",bo:"bo3",cut:"top8",drafts:false,statut:"inscrit",dureeManuelle:null,id:null};
+  participants:"16",bo:"bo3",cut:"aucun",drafts:false,statut:"inscrit",dureeManuelle:null,id:null};
 
 function render(){
   const {items,conflits}=analyser();
@@ -1009,7 +1073,7 @@ function render(){
     +'<button data-a="panneau">Trajets'+(paires.length?" ("+paires.length+")":"")+'</button>'
     +'<button data-a="import-melee">Depuis Melee</button>'
     +'<button data-a="lieux">Lieux'+((S.lieux||[]).length?" ("+S.lieux.length+")":"")+'</button>'
-    +'<button data-a="reglages">Rappels</button></div>';
+    +'<button data-a="reglages">Réglages</button></div>';
 
   if(formOuvert)h+=formHTML();
   if(panneau)h+=(S.reglages.mode==="transports"?trajetsTCHTML():trajetsHTML(paires));
@@ -1146,6 +1210,10 @@ function carteHTML(x,d,f,cs,traj){
     +'<span class="nom">'+esc(e.nom||"Sans nom")
     +(e.lieuNom?'<span class="boutique">'+esc(e.lieuNom)+'</span>':'')+'</span>'
     +(k&&!ouvert?'<span class="pcfl">conflit</span>':'')
+    +'<span class="stt">'+ORDRE_STATUTS.map(cle=>'<button class="sp'
+      +(e.statut===cle?" on":"")+'" data-a="statut" data-id="'+e.id+'" data-v="'+cle
+      +'" title="'+esc(STATUTS[cle].label)+'" aria-pressed="'+(e.statut===cle?"true":"false")
+      +'">'+esc(STATUTS[cle].court)+'</button>').join("")+'</span>'
     +'</div>';
 
   if(!ouvert)return h+'</div></div>';   /* replié : on s'arrête à l'en-tête */
@@ -1157,7 +1225,7 @@ function carteHTML(x,d,f,cs,traj){
   m.push(fdur(x.duree)+(e.dureeManuelle!=null?" (forcé)":""));
   if(e.lieu)m.push(esc(e.lieu));
   if(e.frais)m.push(esc(e.frais)+" €");
-  m.push((STATUTS[e.statut]||{}).label||"");
+
   h+='<div class="meta">'+m.map(s=>"<span>"+s+"</span>").join("<i>/</i>")+'</div>';
   h+=itineraireHTML(traj);
   (cs||[]).forEach(c=>{
@@ -1496,6 +1564,8 @@ function analyserListe(txt){
   if(!tab.length)tab=analyserCartes(txt);
   if(tab.length){
     return tab.map(e=>{
+      /* repéré sur Melee n'est pas inscrit : le statut se relève à la main */
+      e.statut="envisage";
       const ds=doublons(e);
       return{ev:e,rapport:{trouve:[],manque:[]},connu:ds.length>0,doubles:ds,
              passe:horod(e)<Date.now(),termine:/termin/i.test(e.statutMelee||""),
@@ -1670,7 +1740,12 @@ function reglagesHTML(){
     +new Date(sync.dernier).toLocaleString("fr-FR")+'</span>';
   else etat='<span style="color:var(--craie-dim)">jamais synchronisé</span>';
 
-  return '<div class="trajets"><div class="eyebrow" style="margin-bottom:12px">Rappels</div>'
+  return '<div class="trajets"><div class="eyebrow" style="margin-bottom:10px">Apparence</div>'
+  +'<div class="fl" style="margin-bottom:22px">'
+    +Object.keys(THEMES).map(k=>'<button class="puce'
+      +((r.theme||"feutre")===k?" on":"")+'" data-a="theme" data-v="'+k+'">'
+      +esc(THEMES[k].nom)+'</button>').join("")+'</div>'
+  +'<div class="eyebrow" style="margin-bottom:12px">Rappels</div>'
   +'<div class="grille">'
   +'<div class="champ large"><label for="r-base">Adresse de départ habituelle</label>'
     +'<input id="r-base" data-r="base" value="'+esc(r.base)+'" placeholder="12 rue de la Paix, 75002 Paris"></div>'
@@ -1804,11 +1879,26 @@ function trajetsHTML(paires){
 function brancher(){
   document.querySelectorAll("[data-a]").forEach(b=>{
     const a=b.dataset.a;
-    if(a==="fj"||a==="fx"||a==="ij"||a==="itout"||a==="iray"){
+    if(a==="statut"){
+      b.addEventListener("click",ev=>{
+        ev.stopPropagation();          /* sinon l'en-tête se replierait aussi */
+        const e=S.events.find(x=>x.id===b.dataset.id);
+        if(e&&e.statut!==b.dataset.v){
+          e.statut=b.dataset.v;e.maj=Date.now();
+          save();render();syncDifferee();
+        }
+      });
+      return;
+    }
+    if(a==="fj"||a==="fx"||a==="ij"||a==="itout"||a==="iray"||a==="theme"){
       b.addEventListener("click",()=>{
         if(a==="fj")filtreJeu=b.dataset.v;
         else if(a==="fx")filtreLieu=b.dataset.v;
         else if(a==="itout")importTout=!importTout;
+        else if(a==="theme"){
+          S.reglages.theme=b.dataset.v;S.reglagesMaj=Date.now();
+          save();syncDifferee();appliquerTheme();
+        }
         else if(a==="iray"){
           S.reglages.rayonKm=Number(b.dataset.v);S.reglagesMaj=Date.now();
           save();syncDifferee();recocher();
@@ -1958,13 +2048,14 @@ function action(a,id){
     if(!choisis.length){alert("Coche au moins un événement à ajouter.");return}
     const t=Date.now();
     choisis.forEach((x,n)=>{
-      S.events.push(Object.assign({},x.ev,{id:"t"+(t+n),maj:t+n}));
+      /* un tournoi repéré sur Melee n'est pas un tournoi auquel on est inscrit */
+      S.events.push(Object.assign({},x.ev,{id:"t"+(t+n),maj:t+n,statut:"envisage"}));
     });
     importListe=null;importSel={};importTout=false;importTexte="";importRapport=null;importOuvert=false;
     save();render();syncDifferee();
     alert(choisis.length+" tournoi"+(choisis.length>1?"s ajoutés":" ajouté")
-      +" au planning. Vérifie les durées estimées : elles reposent sur un nombre "
-      +"de participants souvent absent des pages Melee.");
+      +" au planning. Vérifie les durées : faute de capacité annoncée par Melee, "
+      +"elles reposent sur 16 joueurs en Bo3 sans top cut.");
   }
   else if(a==="imp-run"){
     const z=document.getElementById("imp");
@@ -1987,6 +2078,7 @@ function action(a,id){
     if(r.drafts)d.drafts=true;
     const l=lieuCorrespondant(r.lieu||"",importTexte);
     if(l){d.lieuId=l.id;d.lieu=l.adresse;d.lieuNom=l.nom}
+    d.statut="envisage";
     const ds=doublons(d);
     if(ds.length)r.avertissement=(r.avertissement?r.avertissement+" ":"")
       +"Attention : ce tournoi semble déjà enregistré ("+texteDoublons(ds)+").";
@@ -2048,7 +2140,7 @@ function action(a,id){
 }
 
 /* ---------- démarrage ---------- */
-loadSync();load();render();
+loadSync();load();appliquerTheme();render();
 verifierAlertes();
 setInterval(verifierAlertes,60000);
 if(sync.token&&sync.gistId)synchroniser(true);

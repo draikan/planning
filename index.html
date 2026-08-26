@@ -283,20 +283,42 @@ function load(){try{const r=localStorage.getItem(CLE);if(r){
 function save(){try{localStorage.setItem(CLE,JSON.stringify(S));return true}catch(e){return false}}
 
 
+/* Deux fiches désignent-elles le même endroit ? On compare tous les noms
+   connus de part et d'autre — lieu enregistré, boutique, organisateur, adresse.
+   Melee affiche « Boutique Loufoque » en tête de groupe et « Belokan Corp »
+   sous le tournoi : ne retenir qu'un seul des deux faisait échouer le
+   rapprochement. */
+function nomsLieu(ev){
+  return [ev.lieuNom,ev.boutique,ev.organisateur,ev.lieu]
+    .map(v=>norm(v||"")).filter(v=>v.length>=3);
+}
+
+function memeLieu(a,b){
+  if(a.lieuId&&b.lieuId)return a.lieuId===b.lieuId;
+  const na=nomsLieu(a), nb=nomsLieu(b);
+  if(!na.length||!nb.length)return false;
+  return na.some(x=>nb.some(y=>
+    x===y||(x.length>=5&&y.length>=5&&(x.indexOf(y)>=0||y.indexOf(x)>=0))));
+}
+
 /* ---------- détection de doublons ---------- */
 /* Même journée, même boutique, horaire voisin : c'est presque certainement le
    même tournoi saisi deux fois. On distingue l'identique (même heure) du
    probable (moins de 30 min d'écart), parce qu'une boutique peut légitimement
    enchaîner deux épreuves dans la journée. */
 function doublons(ev){
+  /* L'adresse de la fiche Melee est une identité certaine : elle tranche seule. */
+  if(ev.url){
+    const parUrl=(S.events||[]).filter(o=>
+      o.url&&o.url===ev.url&&!(o.id&&ev.id&&o.id===ev.id));
+    if(parUrl.length)return parUrl.map(o=>({ev:o,exact:true}));
+  }
   if(!ev.date||!ev.heure)return [];
   const h=minMinuit(ev.heure);
   return (S.events||[]).filter(o=>{
     if(o.id&&ev.id&&o.id===ev.id)return false;
     if(o.date!==ev.date||!o.heure)return false;
-    const memeLieu=(ev.lieuId&&o.lieuId&&ev.lieuId===o.lieuId)
-      ||(norm(ev.lieu)&&norm(ev.lieu)===norm(o.lieu));
-    if(!memeLieu)return false;
+    if(!memeLieu(ev,o))return false;
     return Math.abs(minMinuit(o.heure)-h)<=30;
   }).map(o=>({ev:o,exact:o.heure===ev.heure}));
 }
@@ -314,8 +336,8 @@ function texteDoublons(ds){
    fiche Melee quand elle est connue, qui vaut identité certaine. */
 function signature(ev){
   return{date:ev.date||"",heure:ev.heure||"",
-    lieu:norm(ev.lieuNom||ev.organisateur||ev.lieu||""),
-    nom:ev.nom||"",url:ev.url||""};
+    lieu:norm(ev.lieuNom||ev.boutique||ev.organisateur||ev.lieu||""),
+    noms:nomsLieu(ev),nom:ev.nom||"",url:ev.url||""};
 }
 
 function estExclu(ev){
@@ -323,7 +345,9 @@ function estExclu(ev){
   return (S.exclus||[]).find(x=>{
     if(s2.url&&x.url&&s2.url===x.url)return true;
     if(x.date!==s2.date)return false;
-    if(x.lieu&&s2.lieu&&x.lieu!==s2.lieu)return false;
+    const a=x.noms||(x.lieu?[x.lieu]:[]), b=s2.noms||[];
+    if(a.length&&b.length&&!a.some(u=>b.some(v=>
+      u===v||(u.length>=5&&v.length>=5&&(u.indexOf(v)>=0||v.indexOf(u)>=0)))))return false;
     if(!x.heure||!s2.heure)return x.nom===s2.nom;
     return Math.abs(minMinuit(x.heure)-minMinuit(s2.heure))<=30;
   })||null;
@@ -1092,7 +1116,7 @@ function appliquerTheme(){
 
 /* ---------- rendu ---------- */
 const VIDE={nom:"",jeu:JEUX[0],format:"",date:"",heure:"09:00",lieu:"",
-  lieuId:"",lieuNom:"",organisateur:"",inscrits:"",statutMelee:"",fuseau:"",
+  lieuId:"",lieuNom:"",organisateur:"",boutique:"",inscrits:"",statutMelee:"",fuseau:"",
   distanceKm:null,ville:"",frais:"",
   participants:"16",bo:"bo3",cut:"aucun",drafts:false,statut:"inscrit",dureeManuelle:null,id:null};
 
@@ -1566,6 +1590,10 @@ function analyserCartes(txt){
     e.url=U[i]||U[i+1]||U[i-1]||"";
     e.distanceKm=distance;
     e.ville=ville;
+    /* Melee distingue le lieu (en-tête de groupe) de l'organisateur : une même
+       boutique peut être exploitée par une société au nom différent. On garde
+       les deux, le rapprochement essaiera l'un et l'autre. */
+    e.boutique=groupe;
 
     /* on avance jusqu'à la ligne de prix : l'organisateur la précède */
     for(let k=i+1;k<Math.min(i+8,L.length);k++){
@@ -1589,9 +1617,10 @@ function analyserCartes(txt){
     }
     if(!e.organisateur)e.organisateur=groupe;
 
-    const l2=lieuCorrespondant(e.organisateur,e.organisateur);
+    const l2=lieuCorrespondant(e.boutique,e.boutique)
+      ||lieuCorrespondant(e.organisateur,e.organisateur);
     if(l2){e.lieuId=l2.id;e.lieu=l2.adresse;e.lieuNom=l2.nom}
-    else{e.lieuNom=e.organisateur;e.lieu=ville||""}
+    else{e.lieuNom=e.boutique||e.organisateur;e.lieu=ville||""}
 
     out.push(e);
   });

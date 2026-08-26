@@ -121,6 +121,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .imp-l input{margin-top:3px;flex:none}
 .imp-n{min-width:0;font-size:13.5px}
 .imp-d{color:var(--craie-dim);font-size:11.5px;font-family:'JetBrains Mono',monospace}
+.imp-a{flex:none;font-size:11.5px;padding:4px 8px;align-self:flex-start;margin-top:1px}
+.imp-b.exclu{background:transparent;border:1px dashed var(--craie-dim)}
 .imp-b{font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.08em;
   text-transform:uppercase;padding:2px 6px;border-radius:2px;flex:none;margin-top:2px;
   background:var(--feutre3);color:var(--craie-dim)}
@@ -254,7 +256,7 @@ const FOURNISSEURS={
         base:"",auth:"apikey",
         aide:"Renseigne l\'adresse de base d\'une instance Navitia à laquelle tu as accès."}
 };
-let S={events:[],lieux:[],trajets:{},reglages:Object.assign({},REGLAGES_DEFAUT),
+let S={events:[],lieux:[],exclus:[],trajets:{},reglages:Object.assign({},REGLAGES_DEFAUT),
        reglagesMaj:0,supprimes:{},tc:{},notifs:[]};
 
 /* Identifiants de synchronisation : stockés à part, JAMAIS inclus dans la charge
@@ -273,7 +275,7 @@ let draft=null, lieuBrouillon=null, importTexte='', importRapport=null,
 
 function load(){try{const r=localStorage.getItem(CLE);if(r){
   const d=JSON.parse(r);
-  S={events:d.events||[],lieux:d.lieux||[],trajets:d.trajets||{},
+  S={events:d.events||[],lieux:d.lieux||[],exclus:d.exclus||[],trajets:d.trajets||{},
      reglages:Object.assign({},REGLAGES_DEFAUT,d.reglages||{}),
      reglagesMaj:d.reglagesMaj||0,supprimes:d.supprimes||{},
      tc:d.tc||{},notifs:d.notifs||[]};
@@ -302,6 +304,42 @@ function doublons(ev){
 function texteDoublons(ds){
   return ds.map(d=>(d.exact?"identique à":"très proche de")
     +" « "+(d.ev.nom||"sans nom")+" » ("+d.ev.heure+")").join(", ");
+}
+
+
+/* ---------- liste d'exclusion ---------- */
+/* Un tournoi écarté volontairement ne doit plus jamais réclamer d'attention.
+   Le rapprochement suit les mêmes critères que la détection de doublons —
+   même jour, même boutique, horaire voisin — auxquels s'ajoute l'adresse de la
+   fiche Melee quand elle est connue, qui vaut identité certaine. */
+function signature(ev){
+  return{date:ev.date||"",heure:ev.heure||"",
+    lieu:norm(ev.lieuNom||ev.organisateur||ev.lieu||""),
+    nom:ev.nom||"",url:ev.url||""};
+}
+
+function estExclu(ev){
+  const s2=signature(ev);
+  return (S.exclus||[]).find(x=>{
+    if(s2.url&&x.url&&s2.url===x.url)return true;
+    if(x.date!==s2.date)return false;
+    if(x.lieu&&s2.lieu&&x.lieu!==s2.lieu)return false;
+    if(!x.heure||!s2.heure)return x.nom===s2.nom;
+    return Math.abs(minMinuit(x.heure)-minMinuit(s2.heure))<=30;
+  })||null;
+}
+
+function exclure(ev){
+  if(estExclu(ev))return;
+  S.exclus.push(Object.assign({id:"x"+Date.now()+Math.floor(Math.random()*1000),
+    maj:Date.now()},signature(ev)));
+}
+
+function reintegrer(id){
+  const x=(S.exclus||[]).find(e=>e.id===id);
+  if(!x)return;
+  S.exclus=S.exclus.filter(e=>e.id!==id);
+  S.supprimes[id]=Date.now();   /* pour que la levée se propage aux autres appareils */
 }
 
 /* ---------- lieux favoris ---------- */
@@ -750,7 +788,8 @@ async function gistLire(){
 }
 
 function chargeUtile(){
-  return{v:1,maj:Date.now(),events:S.events,lieux:S.lieux,trajets:S.trajets,tc:S.tc,
+  return{v:1,maj:Date.now(),events:S.events,lieux:S.lieux,exclus:S.exclus,
+    trajets:S.trajets,tc:S.tc,
     supprimes:S.supprimes,reglages:S.reglages,reglagesMaj:S.reglagesMaj||0};
 }
 
@@ -799,6 +838,15 @@ function fusionner(dist){
     restants.push(e);
   });
   S.events=restants;
+
+  const exId={};
+  (dist.exclus||[]).forEach(x=>{exId[x.id]=x});
+  (S.exclus||[]).forEach(x=>{
+    const d2=exId[x.id];
+    if(!d2||(x.maj||0)>=(d2.maj||0))exId[x.id]=x;
+  });
+  S.exclus=Object.keys(exId).map(id=>exId[id])
+    .filter(x=>!(supp[x.id]&&supp[x.id]>=(x.maj||0)));
 
   S.lieux=Object.keys(lieuxId).map(id=>lieuxId[id])
     .filter(l=>!(supp[l.id]&&supp[l.id]>=(l.maj||0)))
@@ -1593,7 +1641,7 @@ function analyserListe(txt){
       const ds=doublons(e);
       return{ev:e,rapport:{trouve:[],manque:[]},connu:ds.length>0,doubles:ds,
              passe:horod(e)<Date.now(),termine:/termin/i.test(e.statutMelee||""),
-             suspect:verifierDate(e)};
+             exclu:estExclu(e),suspect:verifierDate(e)};
     });
   }
   return decouperBlocs(txt).map(b=>{
@@ -1637,7 +1685,8 @@ function importHTML(){
     const liste=(importTout?futurs:futurs.filter(x=>
       (!suivis.length||suivis.indexOf(x.ev.jeu)>=0)&&dansRayon(x)));
     const horsRayon=futurs.filter(x=>!dansRayon(x)).length;
-    const nouveaux=liste.filter(x=>!x.connu).length;
+    const nouveaux=liste.filter(x=>!x.connu&&!x.exclu).length;
+    const nbExclus=liste.filter(x=>x.exclu).length;
     const ecartes=importListe.length-futurs.length;
     const masques=futurs.length-liste.length;
     h+='<div class="estim" style="margin-top:14px">'
@@ -1686,7 +1735,13 @@ function importHTML(){
         +(x.connu?' · correspond à « '+esc(x.doubles[0].ev.nom||"sans nom")+' »':'')
         +(x.suspect?'<br><span class="imp-w">Date douteuse : '+esc(x.suspect)
           +'. Vérifie sur Melee avant de t\'inscrire.</span>':'')
-        +'</span></div></div>';
+        +'</div>'
+        +(x.exclu
+          ?'<button class="discret imp-a" data-a="excl-del" data-id="'+esc(x.exclu.id)
+            +'">Rétablir</button>'
+          :(x.connu?'':'<button class="discret imp-a" data-a="excl-add" data-i="'+i
+            +'" title="Ne plus proposer ce tournoi">Écarter</button>'))
+        +'</div>';
     });
     h+='</div>';
 
@@ -1769,6 +1824,20 @@ function reglagesHTML(){
     +Object.keys(THEMES).map(k=>'<button class="puce'
       +((r.theme||"feutre")===k?" on":"")+'" data-a="theme" data-v="'+k+'">'
       +esc(THEMES[k].nom)+'</button>').join("")+'</div>'
+  +((S.exclus||[]).length
+    ?'<div class="eyebrow" style="margin-bottom:10px">Tournois écartés ('
+      +S.exclus.length+')</div>'
+     +S.exclus.slice().sort((x,y)=>(x.date||"").localeCompare(y.date||""))
+       .map(x=>'<div class="tr-l"><div class="tr-n">'+esc(x.nom||"Sans nom")
+         +'<br><span style="color:var(--craie-dim);font-size:11.5px">'
+         +esc(x.date||"?")+(x.heure?' '+esc(x.heure):'')
+         +(x.lieu?' · '+esc(x.lieu):'')+'</span></div>'
+         +'<button class="discret" data-a="excl-del" data-id="'+esc(x.id)
+         +'">Rétablir</button></div>').join("")
+     +'<div class="note" style="margin:10px 0 22px">Ces tournois ne seront plus '
+      +'proposés lors des imports, même si tu recolles la page. Les rétablir les '
+      +'rend à nouveau sélectionnables.</div>'
+    :'')
   +'<div class="eyebrow" style="margin-bottom:12px">Rappels</div>'
   +'<div class="grille">'
   +'<div class="champ large"><label for="r-base">Adresse de départ habituelle</label>'
@@ -1903,6 +1972,17 @@ function trajetsHTML(paires){
 function brancher(){
   document.querySelectorAll("[data-a]").forEach(b=>{
     const a=b.dataset.a;
+    if(a==="excl-add"){
+      b.addEventListener("click",()=>{
+        const x=importListe&&importListe[b.dataset.i];
+        if(!x)return;
+        exclure(x.ev);
+        delete importSel[b.dataset.i];
+        importListe.forEach(y=>{y.exclu=estExclu(y.ev)});
+        save();render();syncDifferee();
+      });
+      return;
+    }
     if(a==="statut"){
       b.addEventListener("click",ev=>{
         ev.stopPropagation();          /* sinon l'en-tête se replierait aussi */
@@ -2014,7 +2094,7 @@ function recocher(){
   if(!suivis.length)return;
   const rayon=Number(S.reglages.rayonKm)||0;
   importListe.forEach((x,i)=>{
-    if(x.connu||x.passe||x.termine)return;
+    if(x.connu||x.passe||x.termine||x.exclu)return;
     if(suivis.indexOf(x.ev.jeu)<0)return;
     if(rayon&&x.ev.distanceKm!=null&&x.ev.distanceKm>rayon)return;
     importSel[i]=true;
@@ -2057,10 +2137,15 @@ function action(a,id){
     render();
   }
   else if(a==="imp-vider"){importTexte="";importRapport=null;importListe=null;importSel={};importTout=false;render()}
+  else if(a==="excl-del"){
+    reintegrer(id);
+    if(importListe)importListe.forEach(x=>{x.exclu=estExclu(x.ev)});
+    save();render();syncDifferee();
+  }
   else if(a==="imp-tout"){
     const suivis=S.reglages.jeuxSuivis||[];
     importListe.forEach((x,i)=>{
-      if(x.connu||x.passe||x.termine)return;
+      if(x.connu||x.passe||x.termine||x.exclu)return;
       if(suivis.length&&!importTout&&suivis.indexOf(x.ev.jeu)<0)return;
       importSel[i]=true;
     });
@@ -2068,7 +2153,7 @@ function action(a,id){
   }
   else if(a==="imp-rien"){importSel={};render()}
   else if(a==="imp-ajouter"){
-    const choisis=importListe.filter((x,i)=>importSel[i]&&!x.connu&&!x.passe&&!x.termine);
+    const choisis=importListe.filter((x,i)=>importSel[i]&&!x.connu&&!x.passe&&!x.termine&&!x.exclu);
     if(!choisis.length){alert("Coche au moins un événement à ajouter.");return}
     const t=Date.now();
     choisis.forEach((x,n)=>{
